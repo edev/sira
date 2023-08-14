@@ -1,6 +1,6 @@
 # Sira: Simple Remote Administration
 
-Sira is a tool for managing small collections of computers (including virtual machines) running Linux and similar operating systems (such as BSD).
+Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of computers (including virtual machines) running Linux and similar operating systems (such as BSD).
 
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
