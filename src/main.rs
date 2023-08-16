@@ -11,9 +11,9 @@
 
 pub mod core {
     pub mod plan {
-        use crate::core::action::Action;
+        use crate::core::action::{Action, HostAction};
         use crate::core::manifest::{Manifest, TaskIter};
-        use crate::core::task::{ActionIter, HostTask, Task};
+        use crate::core::task::{HostTask, Task};
         use std::path::Path;
 
         /// A plan of action for executing a given list of manifests.
@@ -24,9 +24,7 @@ pub mod core {
             /// The official, ordered list of manifests that comprise the plan.
             ///
             /// Everything else can be computed from these manifests.
-            manifests: Vec<Manifest>, // TODO Add file paths to this list or otherwise devise a
-                                      // coherent plan for tracking file names across manifest and
-                                      // task files.
+            manifests: Vec<Manifest>,
         }
 
         impl Plan {
@@ -57,14 +55,16 @@ pub mod core {
             }
 
             /// Returns an execution plan for the specified host.
-            pub fn plan_for(&self, host: &str) -> HostPlan {
+            ///
+            /// Returns [None] if `host` was not in the plan's list of hosts.
+            pub fn plan_for(&self, host: &str) -> Option<HostPlan> {
                 todo!()
             }
         }
 
         pub struct HostPlan<'p> {
             /// The host on which this plan will run.
-            host: String,
+            host: &'p str,
 
             /// The [Plan] to run on the host.
             plan: &'p Plan,
@@ -72,65 +72,81 @@ pub mod core {
 
         impl<'p> HostPlan<'p> {
             pub fn iter(&self) -> HostPlanIter {
-                todo!()
+                HostPlanIter {
+                    host: self.host,
+                    manifests: self.plan.manifests.iter(),
+
+                    // `current_iter` must be `None`, otherwise we inadvertently bypass the logic
+                    // in the `Iterator::next` method that skips manifests that don't shouldn't run
+                    // on `host`.
+                    current_iter: None,
+                }
             }
         }
 
+        /// An iterator that yields actions to take on a specific host, in order.
         pub struct HostPlanIter<'p> {
+            /// The host on which the plan is intended to run.
             host: &'p str,
 
-            /// An iterator that yields the next manifest to process.
+            /// An iterator over the manifests in this plan.
             manifests: std::slice::Iter<'p, Manifest>,
 
-            /// The manifest over which this HostPlan is currently iterating.
+            /// The current task iterator, which yields [HostAction] values.
             ///
-            /// This will be [None] before iteration starts and after iteration finishes.
-            current_manifest: Option<&'p Manifest>,
-
-            /// An iterator that yields the next [Task] to process. Generated from
-            /// [current_manifest].
-            tasks: Option<TaskIter>,
-
-            /// The task file over which this HostPlan is currently iterating.
-            ///
-            /// This will be [None] before iteration starts and after iteration finishes.
-            current_task: Option<HostTask<'p>>,
-
-            /// An iterator that yields the next [HostAction] to process.
-            ///
-            /// This will be [None] before iteration starts and after iteration finishes. Generated
-            /// from [current_task].
-            actions: Option<ActionIter>,
+            /// If there are no manifests in the plan, then there can be no current iterator. Thus,
+            /// this must be an optional type.
+            current_iter: Option<TaskIter<'p>>,
         }
 
         impl<'p> Iterator for HostPlanIter<'p> {
-            type Item = Action;
+            type Item = HostAction<'p>;
 
             fn next(&mut self) -> Option<Self::Item> {
-                // Runs through manifests, tasks, and actions like hour, minute, and second hands
-                // of a clock, advancing the larger value only once the next smaller iterator is
-                // done. Calls HostAction::compile to generate and yield a final Action.
-                todo!()
+                // A `TaskIter` knows how to walk a list of tasks and return a single
+                // `HostAction`. Our job here is to walk the list of manifests, in order,
+                // generating a new `Taskiter` from the next `Manifest` when the previous one is
+                // done. When we're out of manifests, we're done.
+
+                // If we have an iterator and it has a value for us, we're done.
+                if let Some(ref mut iter) = self.current_iter {
+                    if let Some(next) = iter.next() {
+                        return Some(next);
+                    }
+                }
+
+                // If we have another manifest to try, save its iterator to `current_iter` and
+                // try again. Skip any manifests that that shouldn't run on `host`.
+                if let Some(next_manifest) = self.manifests.next() {
+                    self.current_iter = next_manifest.tasks_for(self.host);
+                    return self.next();
+                }
+
+                // If we don't have a `TaskIter` ready to yield a value, and we don't have another
+                // `Manifest` to try, then we're done.
+                None
             }
         }
 
-        // This function is meant as the easy, default entry point for executors.
-        //
-        // This function doesn't actually know how to parse; it simply calls
-        // core::manifest::load_manifests for each file.
-        //
-        // The return type should be a Result<Self, Error>, but I haven't defined the error yet.
+        /// This function is meant as the easy, default entry point for executors.
+        ///
+        /// This function doesn't actually know how to parse; it simply calls
+        /// core::manifest::load_manifests for each file.
+        ///
+        /// The return type should be a Result<Self, Error>, but I haven't defined the error yet.
         pub fn from_manifest_files(files: &[impl AsRef<Path>]) -> Plan {
             todo!()
         }
     }
 
     pub mod manifest {
+        use crate::core::action::{Action, HostAction};
         use crate::core::task::Task;
         pub struct Manifest {
+            source: Option<String>,
             name: String,
             hosts: Vec<String>,
-            include: Vec<(String, Vec<Task>)>, // (file_path, actions)
+            include: Vec<Task>,
             vars: Vec<(String, String)>,
         }
 
@@ -139,28 +155,154 @@ pub mod core {
         }
 
         impl Manifest {
-            pub(in crate::core) fn tasks_for(&self, host: &str) -> TaskIter {
-                todo!()
+            /// Returns a [TaskIter] over tasks in this manifest, or [None] if `host` doesn't
+            /// match.
+            pub(in crate::core) fn tasks_for<'p>(&'p self, host: &'p str) -> Option<TaskIter<'p>> {
+                if self.hosts.iter().all(|h| host != h) {
+                    return None;
+                }
+
+                Some(TaskIter {
+                    host,
+                    manifest: self,
+                    task: None,
+                    task_iter: self.include.iter(),
+                    action_iter: None,
+                })
+            }
+
+            /// Where this manifest came from.
+            ///
+            /// For instance, a manifest loaded from a file might set this to the path to the file.
+            ///
+            /// For manifests from other sources, e.g. directly from Rust or from network sources,
+            /// there is currently no standard value to place here, because these are not intended
+            /// use cases for Sira at this time.
+            pub fn source(&self) -> &Option<String> {
+                &self.source
+            }
+
+            pub fn name(&self) -> &String {
+                &self.name
+            }
+
+            pub fn hosts(&self) -> &[String] {
+                &self.hosts
+            }
+
+            pub fn tasks(&self) -> &[Task] {
+                &self.include
+            }
+
+            pub fn vars(&self) -> &[(String, String)] {
+                &self.vars
             }
         }
 
         /// Iterates over [Task]s in a [Manifest].
         ///
+        /// Some fields of this iterator are for tracking interation progress. Others are saving
+        /// information we'll need to pass on to lower-level iterators so that the [HostAction] has
+        /// all the information it needs. This distinction is documented in each field's comments.
+        ///
         /// # Returns
         ///
-        /// [HostTask] values representing a given [Task] in the context of a host and [Manifest].
-        pub(in crate::core) struct TaskIter {
+        /// [HostAction] values representing a given [Action] in the context of a host and
+        /// [Manifest].
+        pub(in crate::core) struct TaskIter<'p> {
+            /// The host on which these tasks will run.
+            ///
+            /// Passed through to [HostAction].
+            host: &'p str,
 
+            /// The [Manifest] that included this [Task].
+            ///
+            /// Passed through to [HostAction].
+            manifest: &'p Manifest,
+
+            /// The [Task] from which [Actions] are currently being read.
+            ///
+            /// Passed through to [HostAction].
+            task: Option<&'p Task>,
+
+            /// The iterator that yields the [Task]s that TaskIter walks.
+            task_iter: std::slice::Iter<'p, Task>,
+
+            /// The iterator that yields the [Action]s from `self.task`. We use these values in
+            /// combination with values saved in the `TaskIter` to build [HostActions].
+            ///
+            /// If there are no tasks in the manifest, then there can be no action iterator. Thus,
+            /// this must be an optional type.
+            action_iter: Option<std::slice::Iter<'p, Action>>,
+        }
+
+        impl<'p> Iterator for TaskIter<'p> {
+            type Item = HostAction<'p>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                // If we have an `Action` iterator, and it has an `Action` for us, then we're done.
+                if let Some(ref mut iter) = self.action_iter {
+                    if let Some(action) = iter.next() {
+                        return Some(HostAction::new(
+                            self.host,
+                            self.manifest,
+                            self.task.unwrap(),
+                            action
+                        ));
+                    }
+                }
+
+                // If we have another `Task`, then save an iterator over its `Action`s and retry.
+                if let Some(task) = self.task_iter.next() {
+                    self.action_iter = Some(task.actions().iter());
+                    self.task = Some(task);
+                    return self.next();
+                }
+
+                // If we don't have a next `Action`, and we don't have any more `Tasks` to try,
+                // then we're done.
+                None
+            }
         }
     }
 
     pub mod task {
         use crate::core::{action::Action, manifest::Manifest};
         pub struct Task {
+            source: Option<String>,
             name: String,
             user: String,
             actions: Vec<Action>,
             vars: Vec<(String, String)>,
+        }
+
+        impl Task {
+            /// Where this task came from.
+            ///
+            /// For instance, a task loaded from a file might set this to the path to the file.
+            ///
+            /// For task from other sources, e.g. directly from Rust or from network sources,
+            /// there is currently no standard value to place here, because these are not intended
+            /// use cases for Sira at this time.
+            pub fn source(&self) -> &Option<String> {
+                &self.source
+            }
+
+            pub fn name(&self) -> &str {
+                &self.name
+            }
+
+            pub fn user(&self) -> &str {
+                &self.user
+            }
+
+            pub fn actions(&self) -> &[Action] {
+                &self.actions
+            }
+
+            pub fn vars(&self) -> &[(String, String)] {
+                &self.vars
+            }
         }
 
         pub(in crate::core) struct HostTask<'m> {
@@ -180,26 +322,10 @@ pub mod core {
             /// This [Task] holds any task-level variables that must be applied.
             pub task: &'m Task,
         }
-
-        impl<'m> HostTask<'m> {
-            pub(in crate::core) fn actions_for(&'m self, host: &'m str, manifest_vars: &'m [(String, String)]) -> ActionIter {
-                todo!()
-            }
-        }
-
-
-        /// Iterates over [Action]s in a [Task].
-        ///
-        /// # Returns
-        ///
-        /// [HostAction] values representing a given [Action] in the context of a host, [Manifest],
-        /// and [Task].
-        pub(in crate::core) struct ActionIter {
-        }
     }
 
     pub mod action {
-        use crate::core::{manifest::Manifest, task::HostTask};
+        use crate::core::{manifest::Manifest, task::Task};
         pub use regex::Regex;
 
         pub enum Action {
@@ -228,21 +354,42 @@ pub mod core {
             },
         }
 
-        pub(in crate::core) struct HostAction<'m> {
+        pub struct HostAction<'p> {
+            host: &'p str,
+            manifest: &'p Manifest,
+            task: &'p Task,
+            action: &'p Action,
+        }
+
+        impl<'p> HostAction<'p> {
+            pub(in crate::core) fn new(
+                host: &'p str,
+                manifest: &'p Manifest,
+                task: &'p Task,
+                action: &'p Action
+            ) -> Self {
+                HostAction { host, manifest, task, action, }
+            }
 
             /// The target host name.
-            host: &'m str,
-
-            /// The [HostTask] that generated this HostAction.
-            host_task: &'m HostTask<'m>,
+            pub fn host(&self) -> &str {
+                &self.host
+            }
 
             /// The manifest that caused this [Action] to run.
-            ///
-            /// You can access this same value via `self.host_task.manifest`.
-            manifest: &'m Manifest,
+            pub fn manifest(&self) -> &Manifest {
+                &self.manifest
+            }
 
-            /// The original [Action] from the [Task]. It is not yet ready to run!
-            action: &'m Action,
+            /// The [Task] that contains this [Action].
+            pub fn task(&self) -> &Task {
+                &self.task
+            }
+
+            /// The original [Action] from the [Task].
+            pub fn action(&self) -> &Action {
+                &self.action
+            }
         }
 
         impl<'m> HostAction<'m> {
