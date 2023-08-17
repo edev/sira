@@ -29,7 +29,9 @@ pub mod core {
 
         impl Plan {
             pub fn new() -> Self {
-                todo!()
+                Plan {
+                    manifests: Vec::new(),
+                }
             }
 
             /// Add a [Manifest] to the plan.
@@ -403,96 +405,31 @@ pub mod core {
 }
 use crate::core::{action::Action, manifest::Manifest, task::Task};
 
-trait ThreadHandle {
-    type Error;
-
-    fn join(self) -> Result<(), Self::Error>;
-}
-
-use std::any::Any;
-impl ThreadHandle for std::thread::JoinHandle<()> {
-    type Error = Box<dyn Any + Send + 'static>;
-    fn join(self) -> std::thread::Result<()> {
-        self.join()
+pub mod executor {
+    /// The central component of Sira's controller-side software.
+    ///
+    /// Provides the communication hub among the user interface, logger, network, and any plans
+    /// being run. Coordinates the execution of plans on managed nodes.
+    pub struct Executor<U, L, N>
+    where
+        U: UserInterface,
+        L: Logger,
+        N: Network,
+    {
+        ui: U,
+        logger: L,
+        network: N,
     }
+
+    /// The public API to a user interface.
+    pub trait UserInterface {}
+
+    /// The public API to a logging mechanism.
+    pub trait Logger {}
+
+    /// The public API to a system for connecting to computers it will manage, typically via SSH.
+    pub trait Network {}
 }
-
-trait SendManifest {
-    type Error: std::error::Error;
-    fn send(&self, manifest: Manifest) -> Result<(), Self::Error>;
-}
-
-impl SendManifest for std::sync::mpsc::Sender<Manifest> {
-    type Error = std::sync::mpsc::SendError<Manifest>;
-    fn send(&self, manifest: Manifest) -> Result<(), Self::Error> {
-        self.send(manifest)
-    }
-}
-
-/// A representation of a thread, and associated values such as communications channels, for
-/// communicating with a specific remote host.
-///
-/// All fields of this struct should be generics with trait bounds. This decouples the code that
-/// uses this struct from implementation details such the specific SSH library, possible async
-/// runtime, and so on that are used.
-struct HostThread<H: ThreadHandle, S: SendManifest> {
-    handle: H,
-    manifests: S,
-}
-
-trait Ssh {
-    fn connect() -> Self;
-
-    fn shell();
-
-    fn upload();
-
-    fn download();
-}
-
-struct OpenSsh {}
-
-impl Ssh for OpenSsh {
-    fn connect() -> Self { todo!() }
-
-    fn shell() {}
-
-    fn upload() {}
-
-    fn download() {}
-}
-
 
 fn main() {
-    // Parse arguments, probably using clap.
-    todo!();
-
-    let mut manifests: Vec<Manifest> = Vec::new();
-    // Load each manifest file specified in the command-line options in the order in which the
-    // caller specified them. This also loads tasks, which means errors in any YAML files are
-    // caught long before any Actions run.
-    todo!();
-
-    let host_threads = spawn_host_threads(&manifests);
-
-    // Send each manifest to each host in its list. (Yes, clone the manifests, creating deep
-    // copies. This is intentional and okay.)
-    todo!();
-
-    // Join host threads.
-    todo!();
-}
-
-use std::collections::BTreeMap;
-// Collect all hosts from all manifests. Yes, we could do this in a more haphazard way, but
-// this is more testable and more obviously correct.
-fn spawn_host_threads(manifests: &[Manifest]) -> BTreeMap<String, HostThread<std::thread::JoinHandle<()>, std::sync::mpsc::Sender<Manifest>>> {
-    let mut hosts = BTreeMap::new();
-    for manifest in manifests {
-        // If hosts doesn't already have an entry for the host, then spawn a new thread with a new
-        // channel to send to it (as well as any other communications channels that might be
-        // required) and store the HostThread tracking all those details in hosts.
-        todo!()
-    }
-    hosts
 }
