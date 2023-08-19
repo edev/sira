@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 regex = "1.9"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 openssh = "0.9"
