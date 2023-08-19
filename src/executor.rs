@@ -53,12 +53,15 @@ impl Executor {
 use crate::core::plan::Plan;
 use tokio::sync::oneshot;
 
+/// A UI's communication channel to [Executor] when there is no currently executing [Plan].
+#[derive(Debug)]
 pub struct IdleState {
     sender: oneshot::Sender<(Plan, ChannelPair<ExecutorMessage, UiMessage>)>,
 }
 
 impl IdleState {
-    pub fn start(self, plan: Plan) -> PlanState {
+    /// Starts executing a [Plan]. Consumes self and returns a [UiState::Plan].
+    pub fn start(self, plan: Plan) -> UiState {
         let (executor_tx, ui_rx) = mpsc::unbounded_channel::<ExecutorMessage>();
         let (ui_tx, executor_rx) = mpsc::unbounded_channel::<UiMessage>();
 
@@ -69,58 +72,39 @@ impl IdleState {
 
         self.sender.send((plan, executor_channel_pair)).unwrap();
 
-        PlanState {
+        UiState::Plan(PlanState {
             sender: ui_tx,
             receiver: ui_rx,
-        }
+        })
     }
 }
 
 pub type PlanState = ChannelPair<UiMessage, ExecutorMessage>;
 
 #[derive(Debug)]
+pub enum UiState {
+    /// The program is `idle`, meaning it is not executing a [Plan].
+    ///
+    /// From this state, the UI may start a [Plan] using [IdleState::start].
+    Idle(IdleState),
+
+    /// The program is currently executing a [Plan].
+    ///
+    /// For safety, only one [Plan] may execute at a time. Separating [UiState::Idle] and
+    /// [UiState::Plan] is how we accomplish this.
+    Plan(PlanState),
+}
+
+/// Messages that a UI can send to [Executor].
+///
+/// Currently there are none, because the planned UI simply monitors a batch job.
+#[derive(Debug)]
 pub enum UiMessage {}
 
 #[derive(Debug)]
 pub enum ExecutorMessage {
-    /// When [Executor] is listening for [UiMessages] and finds that the UI has dropped the sender
-    /// and thus closed the channel, [Executor] infers that the UI wishes to return to the idle
-    /// state. Thus, the [Executor] does the following:
+    /// Sent when [Executor] is returning to the idle state (no longer executing a plan).
     ///
-    /// 1. Sends an [ExecutorMessage::IdleState] message to the UI with everything the UI needs to
-    ///    return to [IdleState].
-    ///
-    /// 2. Drops the sender and receiver it was using during plan execution.
-    ///
-    /// 3. Listens to the idle state receiver paired to the message it just sent to the UI.
-    ///
-    /// If [Executor] is unable to send the [ExecutorMessage::IdleState] message to the UI
-    /// (presumably because the UI has closed its receiver), then [Executor] infers that the UI
-    /// wishes to terminate the program.
-    ///
-    /// NOTE I think it's better to have the UI be more explicit, with both ReturnToIdle and Exit
-    /// messages. No inferring, please. In particular, inferring creates a nasty race condition
-    /// where Executor can infer the wrong outcome if it tries to send an IdleState message to the
-    /// UI, the UI intends to close the channel to indicate that the program is closing, and the
-    /// Executor wins the race. Sure, we can cope with this logic, but the much easier and more
-    /// obviously correct design is simply to have clear messages indicating intent.
-    IdleState(oneshot::Sender<(Plan, ChannelPair<ExecutorMessage, UiMessage>)>),
+    /// When the UI receives this, it should switch its [UiState] to [UiState::Idle].
+    Idle(IdleState),
 }
-
-// use crate::core::plan::Plan;
-// pub enum IdleMessage {
-//     Start(Plan),
-// }
-//
-// enum UiPlanMessage {}
-//
-// enum ExecutorPlanMessage {}
-//
-// enum RunningState {
-//     Idle(Sender<IdleMessage>),
-//     Plan(ChannelPair<UiPlanMessage, ExecutorPlanMessage>),
-// }
-//
-// impl IdleMessage {
-//
-// }
