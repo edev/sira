@@ -9,7 +9,7 @@ use std::path::Path;
 ///
 /// [Task]: crate::core::task::Task
 /// [Action]: crate::core::action::Action
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Plan {
     /// The official, ordered list of manifests that comprise the plan.
     ///

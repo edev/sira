@@ -1,5 +1,6 @@
 use crate::core::action::Action;
 
+#[derive(Debug)]
 pub struct Task {
     source: Option<String>,
     name: String,

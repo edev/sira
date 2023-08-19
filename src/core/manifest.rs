@@ -1,6 +1,7 @@
 use crate::core::action::{Action, HostAction};
 use crate::core::task::Task;
 
+#[derive(Debug)]
 pub struct Manifest {
     source: Option<String>,
     name: String,

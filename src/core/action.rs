@@ -1,6 +1,7 @@
 use crate::core::{manifest::Manifest, task::Task};
 pub use regex::Regex;
 
+#[derive(Debug)]
 pub enum Action {
     Shell {
         commands: Vec<String>,
