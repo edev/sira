@@ -54,3 +54,15 @@ pub enum State {
     /// [State::Plan] is how we accomplish this.
     Plan(PlanState),
 }
+
+impl State {
+    /// Creates a [State::Idle] and an [executor::UiState::Idle], paired and ready to talk.
+    ///
+    /// This function is the intended way to instantiate both of these interconnected types.
+    pub fn new() -> (Self, executor::UiState) {
+        let (sender, receiver) = oneshot::channel();
+        let ui_state = Self::Idle(IdleState { sender });
+        let executor_state = executor::UiState::Idle(executor::IdleState::new(receiver));
+        (ui_state, executor_state)
+    }
+}

@@ -63,6 +63,15 @@ pub struct IdleState {
 }
 
 impl IdleState {
+    /// Creates a new [IdleState] value based on a [oneshot::Receiver].
+    ///
+    /// This function is meant to be paired with [ui::State::new].
+    pub(crate) fn new(
+        receiver: oneshot::Receiver<(Plan, ChannelPair<Message, ui::Message>)>,
+    ) -> Self {
+        IdleState { receiver }
+    }
+
     /// Waits until a UI calls [ui::IdleState::start], then returns a [UiState::Plan].
     pub async fn wait_to_start(self) -> UiState {
         let _response = tokio::spawn(async move { self.receiver.blocking_recv() }).await;
