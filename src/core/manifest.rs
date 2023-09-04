@@ -1,21 +1,43 @@
+//! Types for representing manifest files.
 use crate::core::action::{Action, HostAction};
 use crate::core::task::Task;
 
+/// Represents a manifest file; typically used in the context of a [Plan].
+///
+/// This type is typically parsed from a manifest file, but it can be constructed programmatically
+/// as well.
+///
+/// [Plan]: crate::core::plan::Plan
 #[derive(Debug)]
 pub struct Manifest {
+    /// The file from which this value was parsed (if any).
     source: Option<String>,
+
+    /// Used for informational, logging, and debugging purposes.
     name: String,
+
+    /// Order is perserved from the source file but is typically unimportant.
     hosts: Vec<String>,
+
+    /// Order is preserved from the source file. Tasks are executed in order.
     include: Vec<Task>,
+
+    /// Order is preserved from the source file but is typically unimportant.
     vars: Vec<(String, String)>,
 }
 
+/// Loads [Manifest] values from a manifest file.
 #[allow(unused_variables)]
 pub fn load_manifests<R: std::io::BufRead>(source: R) -> Vec<Manifest> {
     todo!()
 }
 
 impl Manifest {
+    /// Constructs a new [Manifest].
+    ///
+    /// Values are immutable once constructed. There is no builder API or other interface meant for
+    /// easily building these values programmatically, as this is not an intended use case of Sira
+    /// at this time.
     #[allow(unused_variables)]
     pub fn new(
         source: Option<String>,
@@ -54,18 +76,24 @@ impl Manifest {
         &self.source
     }
 
+    /// The manifest's name. This has no bearing on program execution and is simply a convenience.
     pub fn name(&self) -> &String {
         &self.name
     }
 
+    /// Hosts on which this manifest will run.
     pub fn hosts(&self) -> &[String] {
         &self.hosts
     }
 
+    /// [Task]s (typically loaded from task files) that comprise this manifest.
     pub fn tasks(&self) -> &[Task] {
         &self.include
     }
 
+    /// Manifest-level variables, which will eventually be compiled when actions are run.
+    ///
+    /// Variables are stored as `(name, value)` tuples.
     pub fn vars(&self) -> &[(String, String)] {
         &self.vars
     }

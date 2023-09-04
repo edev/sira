@@ -1,3 +1,5 @@
+//! Types for representing an ordered list of manifests to run.
+
 use crate::core::action::HostAction;
 use crate::core::manifest::{Manifest, TaskIter};
 use std::path::Path;
@@ -18,6 +20,7 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// Creates an empty [Plan], i.e. one with no [Manifest]s.
     pub fn new() -> Self {
         Plan {
             manifests: Vec::new(),
@@ -56,6 +59,7 @@ impl Plan {
     }
 }
 
+/// A [Plan] in the context of a single host on which it will run.
 pub struct HostPlan<'p> {
     /// The host on which this plan will run.
     host: &'p str,
@@ -65,6 +69,9 @@ pub struct HostPlan<'p> {
 }
 
 impl<'p> HostPlan<'p> {
+    /// Returns an iterator over [Action]s on this host.
+    ///
+    /// [Action]: crate::core::action::Action
     pub fn iter(&self) -> HostPlanIter {
         HostPlanIter {
             host: self.host,

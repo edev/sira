@@ -1,4 +1,4 @@
-//! At this stage, this file contains a very rough initial sketch of the program's organization.
+//! Simple remote administration.
 //!
 //! # YAML file types
 //!

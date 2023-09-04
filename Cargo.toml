@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-regex = "1.9"
-tokio = { version = "1", features = ["rt", "sync"] }
+crossbeam = "0.8.2"
 openssh = "0.9"
+regex = "1.9"
