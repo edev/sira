@@ -25,7 +25,7 @@ pub struct IdleState {
     /// It is a logic error to send more than one message through this channel.
     ///
     /// You should not interact with this channel directly. Instead, use [IdleState::start()].
-    sender: Sender<(Plan, ChannelPair<executor::UiMessage, Message>)>,
+    sender: Sender<(Plan, ChannelPair<executor::Message, Message>)>,
 }
 
 impl IdleState {
@@ -37,7 +37,7 @@ impl IdleState {
     ///
     /// [Executor]: crate::executor::Executor
     pub fn start(self, plan: Plan) -> State {
-        let (executor_tx, ui_rx) = channel::unbounded::<executor::UiMessage>();
+        let (executor_tx, ui_rx) = channel::unbounded::<executor::Message>();
         let (ui_tx, executor_rx) = channel::unbounded::<Message>();
 
         let executor_channel_pair = ChannelPair {
@@ -57,7 +57,7 @@ impl IdleState {
 /// A UI's communication channels with [Executor] when it is executing a [Plan].
 ///
 /// [Executor]: executor::Executor
-pub type PlanState = ChannelPair<Message, executor::UiMessage>;
+pub type PlanState = ChannelPair<Message, executor::Message>;
 
 /// Messages that a UI can send to [Executor].
 ///

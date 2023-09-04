@@ -62,7 +62,7 @@ impl Executor {
 
 /// Messages that [Executor] may send to the [ui] when in the [UiState::Plan] state.
 #[derive(Debug)]
-pub enum UiMessage {
+pub enum Message {
     /// Sent when [Executor] is returning to the idle state (no longer executing a plan).
     ///
     /// When the UI receives this, it should switch its [ui::State] to [ui::State::Idle].
@@ -98,7 +98,7 @@ pub enum UiState {
     ///
     /// # UI
     ///
-    /// The [ui] is responding to [UiMessage]s from [Executor] and displaying updates to the user.
+    /// The [ui] is responding to [Message]s from [Executor] and displaying updates to the user.
     ///
     /// # Network
     ///
@@ -121,14 +121,14 @@ pub struct IdleState {
     /// receive a message, you must transition to [UiState::Plan] and drop the [IdleState] value.
     /// The [ui] will take similar steps.
     #[allow(dead_code)]
-    receiver: Receiver<(Plan, ChannelPair<UiMessage, ui::Message>)>,
+    receiver: Receiver<(Plan, ChannelPair<Message, ui::Message>)>,
 }
 
 impl IdleState {
     /// Creates a new [IdleState] value based on a [Receiver].
     ///
     /// This function is meant to be paired with [ui::State::new].
-    pub(crate) fn new(receiver: Receiver<(Plan, ChannelPair<UiMessage, ui::Message>)>) -> Self {
+    pub(crate) fn new(receiver: Receiver<(Plan, ChannelPair<Message, ui::Message>)>) -> Self {
         IdleState { receiver }
     }
 }
@@ -137,4 +137,4 @@ impl IdleState {
 ///
 /// Internally, stores the communications channels that [Executor] needs in this state.
 // TODO Decide whether to store the [Plan] in [PlanState] or as an [Option] in [Executor].
-pub type PlanState = ChannelPair<UiMessage, ui::Message>;
+pub type PlanState = ChannelPair<Message, ui::Message>;
