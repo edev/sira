@@ -1,6 +1,7 @@
 //! Types for representing manifest files.
 use crate::core::action::{Action, HostAction};
 use crate::core::task::Task;
+use std::sync::Arc;
 
 /// Represents a manifest file; typically used in the context of a [Plan].
 ///
@@ -8,7 +9,7 @@ use crate::core::task::Task;
 /// as well.
 ///
 /// [Plan]: crate::core::plan::Plan
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Manifest {
     /// The file from which this value was parsed (if any).
     source: Option<String>,
@@ -131,18 +132,18 @@ pub(in crate::core) struct TaskIter<'p> {
 }
 
 impl<'p> Iterator for TaskIter<'p> {
-    type Item = HostAction<'p>;
+    type Item = Arc<HostAction>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // If we have an `Action` iterator, and it has an `Action` for us, then we're done.
         if let Some(ref mut iter) = self.action_iter {
             if let Some(action) = iter.next() {
-                return Some(HostAction::new(
+                return Some(Arc::new(HostAction::new(
                     self.host,
                     self.manifest,
                     self.task.unwrap(),
                     action,
-                ));
+                )));
             }
         }
 

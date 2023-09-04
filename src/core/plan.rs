@@ -3,6 +3,7 @@
 use crate::core::action::HostAction;
 use crate::core::manifest::{Manifest, TaskIter};
 use std::path::Path;
+use std::sync::Arc;
 
 /// A plan of action for executing a given list of manifests.
 ///
@@ -101,7 +102,7 @@ pub struct HostPlanIter<'p> {
 }
 
 impl<'p> Iterator for HostPlanIter<'p> {
-    type Item = HostAction<'p>;
+    type Item = Arc<HostAction>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // A `TaskIter` knows how to walk a list of tasks and return a single

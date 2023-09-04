@@ -24,4 +24,10 @@ use crossbeam::channel::{self, Sender};
 ///
 /// [Executor]: crate::executor::Executor
 #[derive(Debug)]
-pub enum Message {}
+pub enum Message {
+    /// Informs [Executor] that an [Action] has finished running on a host.
+    ///
+    /// [Action]: crate::core::action::Action
+    /// [Executor]: crate::executor::Executor
+    ActionReport(()),
+}

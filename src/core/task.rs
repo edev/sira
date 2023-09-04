@@ -8,7 +8,7 @@ use crate::core::action::Action;
 /// as well.
 ///
 /// [Manifest]: crate::core::manifest::Manifest
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Task {
     /// The file from which this value was parsed (if any).
     source: Option<String>,

@@ -4,7 +4,7 @@ use crate::core::{manifest::Manifest, task::Task};
 use regex::Regex;
 
 /// The types of actions that Sira can perform on a client.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Action {
     Shell {
         commands: Vec<String>,
@@ -37,22 +37,40 @@ pub enum Action {
 /// information needed to run an [Action] on a given host as well as information about where the
 /// [Action] was specified, for informational, logging, and debugging purposes.
 ///
+/// # Optimization
+///
+/// Note that this type has a lot of room for optimization. Speed shouldn't be a factor at the
+/// scale Sira is designed for, but it's worth noting briefly that this type makes an awful lot of
+/// copies. [HostAction] values get passed from [Executor] to all other parts of the program, so
+/// references are not a great fit.
+///
+/// Optimizing this type is a good candidate for future work. An easy approach would be to pare
+/// down unneeded fields before making copies. For instance, with the [Manifest], you could strip
+/// away the [Task]s, since this type shouldn't need them. There are more aggressive options, too.
+///
+/// A safer option might be to move aggressively into using [Arc]s for storing [Manifest]s,
+/// [Task]s, and [Action]s both here and in their normal [Plan]-[Manifest]-[Task]-[Action]
+/// hierarchy.
+///
+/// [Arc]: std::sync::Arc
+/// [Executor]: crate::executor::Executor
 /// [Plan]: crate::core::plan::Plan
-pub struct HostAction<'p> {
+#[derive(Clone, Debug)]
+pub struct HostAction {
     /// The host on which this [Action] should run.
-    host: &'p str,
+    host: String,
 
     /// The [Manifest] that listed the [Task] containing this [Action].
-    manifest: &'p Manifest,
+    manifest: Manifest,
 
     /// The [Task] that listed this [Action].
-    task: &'p Task,
+    task: Task,
 
     /// The [Action] to be executed on the host.
-    action: &'p Action,
+    action: Action,
 }
 
-impl<'p> HostAction<'p> {
+impl HostAction {
     /// Creates a new [HostAction].
     ///
     /// # Panics
@@ -60,44 +78,44 @@ impl<'p> HostAction<'p> {
     /// Panics if the values provided are not sane. For instance, `manifest` must specify that
     /// `task` run on `host`, and `task` must specify `action`. Violating these sanity checks would
     /// result in unwanted (though well-defined) behavior and is clearly a bug in the calling code.
-    pub(in crate::core) fn new(
-        host: &'p str,
-        manifest: &'p Manifest,
-        task: &'p Task,
-        action: &'p Action,
+    pub(in crate::core) fn new<'plan>(
+        host: &'plan str,
+        manifest: &'plan Manifest,
+        task: &'plan Task,
+        action: &'plan Action,
     ) -> Self {
         // TODO Perform sanity checks.
 
         HostAction {
-            host,
-            manifest,
-            task,
-            action,
+            host: host.to_string(),
+            manifest: manifest.clone(),
+            task: task.clone(),
+            action: action.clone(),
         }
     }
 
     /// The target host name.
     pub fn host(&self) -> &str {
-        self.host
+        &self.host
     }
 
     /// The manifest that caused this [Action] to run.
     pub fn manifest(&self) -> &Manifest {
-        self.manifest
+        &self.manifest
     }
 
     /// The [Task] that contains this [Action].
     pub fn task(&self) -> &Task {
-        self.task
+        &self.task
     }
 
     /// The original [Action] from the [Task].
     pub fn action(&self) -> &Action {
-        self.action
+        &self.action
     }
 }
 
-impl<'m> HostAction<'m> {
+impl HostAction {
     /// Prepares an [Action] to be sent to a host for execution, e.g. performing variable
     /// substitution.
     #[allow(dead_code)]
