@@ -35,7 +35,7 @@ use std::collections::VecDeque;
 pub struct Executor {
     ui: ChannelPair<Report, ui::Message>,
     logger: ExecutiveLog,
-    network: ChannelPair<(), ()>,
+    network: ChannelPair<NetworkControlMessage, network::Report>,
     plans: VecDeque<Plan>,
 }
 
@@ -52,7 +52,7 @@ impl Executor {
     pub fn new(
         ui: ChannelPair<Report, ui::Message>,
         logger: ExecutiveLog,
-        network: ChannelPair<(), ()>,
+        network: ChannelPair<NetworkControlMessage, network::Report>,
     ) -> Self {
         Executor {
             ui,
