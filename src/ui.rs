@@ -1,12 +1,13 @@
 //! The public API for building user interfaces to Sira. Does not contain a UI implementation.
 //!
-//! A UI might also wish to clone the logger. (TODO Implement logging and a cloneable interface,
-//! e.g. `Executor::logger(&self)`)
+//! A UI might also wish to clone [logger::Log].
 
 use crate::core::plan::Plan;
 use crate::executor;
 #[cfg(doc)]
 use crate::executor::Executor;
+#[cfg(doc)]
+use crate::logger;
 
 /// The UI's channels of communication with the rest of Sira (through [Executor]).
 pub type ChannelPair = executor::ChannelPair<Message, executor::Report>;
