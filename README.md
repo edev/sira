@@ -2,6 +2,10 @@
 
 Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of computers (including virtual machines) running Unix-like operating systems.
 
+## Project status
+
+This project is in **initial development.** It is not yet functional and ready for use on any level whatsoever.
+
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
 If these tools work well for you, great! Keep using them!
