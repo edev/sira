@@ -18,8 +18,12 @@
 //! writing your own [Executor] would essentially be rewriting Sira itself. Thus, this module does
 //! not promise to export the types necessary to write a custom [Executor].
 
+#[cfg(doc)]
+use crate::core::action::Action;
 use crate::core::action::HostAction;
 use crate::core::plan::Plan;
+#[cfg(doc)]
+use crate::logger;
 use crate::network;
 use crate::ui;
 use crossbeam::channel::{Receiver, Sender};
@@ -70,13 +74,16 @@ impl Executor {
     }
 }
 
+/// Instructions that [Executor] sends to the [network] to control its operation.
+///
+/// The [network] will commonly respond with one or more [network::Report] messages as it follows
+/// these instructions.
 pub enum NetworkControlMessage {
+    /// Instructs the [network] to run an [Action] on a specific host.
     RunAction(HostAction),
 }
 
 /// Status updates sent to the [ui] and [logger].
-///
-/// [logger]: crate::logger
 pub enum Report {
     /// There's no more work to do; the program is now either idle or finished, depending on the
     /// UI's program flow.

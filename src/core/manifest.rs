@@ -1,5 +1,7 @@
 //! Types for representing manifest files.
 use crate::core::action::{Action, HostAction};
+#[cfg(doc)]
+use crate::core::plan::Plan;
 use crate::core::task::Task;
 use std::sync::Arc;
 
@@ -7,8 +9,6 @@ use std::sync::Arc;
 ///
 /// This type is typically parsed from a manifest file, but it can be constructed programmatically
 /// as well.
-///
-/// [Plan]: crate::core::plan::Plan
 #[derive(Clone, Debug)]
 pub struct Manifest {
     /// The file from which this value was parsed (if any).

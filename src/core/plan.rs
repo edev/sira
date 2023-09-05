@@ -1,7 +1,11 @@
 //! Types for representing an ordered list of manifests to run.
 
+#[cfg(doc)]
+use crate::core::action::Action;
 use crate::core::action::HostAction;
 use crate::core::manifest::{Manifest, TaskIter};
+#[cfg(doc)]
+use crate::core::task::Task;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,9 +13,6 @@ use std::sync::Arc;
 ///
 /// This struct constitutes the public interface that executors use to interact with
 /// [Manifest]s, [Task]s, and [Action]s on the controller.
-///
-/// [Task]: crate::core::task::Task
-/// [Action]: crate::core::action::Action
 #[derive(Debug, Default)]
 pub struct Plan {
     /// The official, ordered list of manifests that comprise the plan.
@@ -71,8 +72,6 @@ pub struct HostPlan<'p> {
 
 impl<'p> HostPlan<'p> {
     /// Returns an iterator over [Action]s on this host.
-    ///
-    /// [Action]: crate::core::action::Action
     pub fn iter(&self) -> HostPlanIter {
         HostPlanIter {
             host: self.host,

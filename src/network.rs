@@ -14,32 +14,32 @@
 //! SSH-based connections; these are documented throughout the project on a best-effort basis. In
 //! general, if you have a connection method in mind that ultimately yields a shell session, you
 //! can probably adapt it to Sira without too much trouble or too many surprises.
-//!
-//! [Executor]: crate::executor::Executor
 
 use crate::core::action::Action;
 use crate::executor;
+#[cfg(doc)]
+use crate::executor::Executor;
 use std::sync::Arc;
 
 /// The UI's channels of communication with the rest of Sira (through [Executor]).
-///
-/// [Executor]: crate::executor::Executor
 pub type ChannelPair = executor::ChannelPair<Report, executor::NetworkControlMessage>;
 
 /// Messages that a network module can send to [Executor].
-///
-/// [Executor]: crate::executor::Executor
 #[derive(Debug)]
 pub enum Report {
+    /// The network module is about to try connecting to the specified host.
     Connecting(String),
 
+    /// The network module has successfully connected to the specified host.
     Connected(String),
 
-    FailedToConnect {
-        host: String,
-        error: String,
-    },
+    /// The network module couldn't reach the host.
+    ///
+    /// When [Executor] receives this message, it is free to choose any response strategy, such as
+    /// retrying or aborting.
+    FailedToConnect { host: String, error: String },
 
+    /// The network module had a connection to the host, but the connection is now closed.
     Disconnected {
         host: String,
 
@@ -49,6 +49,7 @@ pub enum Report {
         error: Option<String>,
     },
 
+    /// The network module is sending the compiled [Action] to the host for execution.
     // Note that we can move to using lots of `Arc`s, here and elsewhere, if we want, to reduce
     // allocations and copies. They would have to be just about everywhere, though, given the
     // data we send across messages.
@@ -60,5 +61,21 @@ pub enum Report {
         task_source: Option<String>,
         task_name: String,
         action: Arc<Action>,
+    },
+
+    /// The specified [Action] is has finished running.
+    ///
+    /// This message does not imply success; for the outcome, see the [result] field.
+    ///
+    /// [result]: Result::ActionResult::result]
+    ActionResult {
+        host: String,
+        // Add `plan: String,` here if we give plans names, which we should if we let them queue.
+        manifest_source: Option<String>,
+        manifest_name: String,
+        task_source: Option<String>,
+        task_name: String,
+        action: Arc<Action>,
+        result: Result<(), ()>,
     },
 }

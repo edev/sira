@@ -1,13 +1,13 @@
 //! Types for representing task files.
 
 use crate::core::action::Action;
+#[cfg(doc)]
+use crate::core::manifest::Manifest;
 
 /// Represents a task file; typically used in the context of a [Manifest].
 ///
 /// This type is typically parsed from a manifest file, but it can be constructed programmatically
 /// as well.
-///
-/// [Manifest]: crate::core::manifest::Manifest
 #[derive(Clone, Debug)]
 pub struct Task {
     /// The file from which this value was parsed (if any).

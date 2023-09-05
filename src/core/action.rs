@@ -1,7 +1,13 @@
 //! Types for representing individual actions.
 
+#[cfg(doc)]
+use crate::core::plan::Plan;
 use crate::core::{manifest::Manifest, task::Task};
+#[cfg(doc)]
+use crate::executor::Executor;
 use regex::Regex;
+#[cfg(doc)]
+use std::sync::Arc;
 
 /// The types of actions that Sira can perform on a client.
 #[derive(Clone, Debug)]
@@ -51,10 +57,6 @@ pub enum Action {
 /// A safer option might be to move aggressively into using [Arc]s for storing [Manifest]s,
 /// [Task]s, and [Action]s both here and in their normal [Plan]-[Manifest]-[Task]-[Action]
 /// hierarchy.
-///
-/// [Arc]: std::sync::Arc
-/// [Executor]: crate::executor::Executor
-/// [Plan]: crate::core::plan::Plan
 #[derive(Clone, Debug)]
 pub struct HostAction {
     /// The host on which this [Action] should run.
