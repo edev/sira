@@ -36,8 +36,7 @@ impl Plan {
     ///
     /// The return type should be a Result<Plan, Error>, but I haven't defined the error yet.
     #[allow(unused_variables)]
-    #[allow(clippy::result_unit_err)]
-    pub fn from_manifest_files(files: &[impl AsRef<Path>]) -> Result<Self, ()> {
+    pub fn from_manifest_files(files: &[impl AsRef<Path>]) -> anyhow::Result<Self> {
         todo!()
     }
 
