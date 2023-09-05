@@ -140,4 +140,9 @@ impl<L: Logger> LogReceiver<L> {
     pub fn new(logger: L) -> (Self, Log, ExecutiveLog) {
         todo!()
     }
+
+    pub fn run(self) {
+        // Select between Receivers and dispatch accordingly.
+        todo!()
+    }
 }
