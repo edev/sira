@@ -20,16 +20,18 @@
 
 use crate::core::action::HostAction;
 use crate::core::plan::Plan;
+use crate::network;
 use crate::ui;
 use crossbeam::channel::{Receiver, Sender};
-use std::sync::Arc;
+use std::collections::VecDeque;
 
 /// Coordinates message routing, plan execution, and program flow.
 #[allow(dead_code)]
 pub struct Executor {
-    ui: ChannelPair<UiMessage, ui::Message>,
+    ui: ChannelPair<Report, ui::Message>,
     logger: ChannelPair<(), ()>,
     network: ChannelPair<(), ()>,
+    plans: VecDeque<Plan>,
 }
 
 /// A pair of channel ends for passing messages to and from another part of the program.
@@ -43,7 +45,7 @@ impl Executor {
     // TODO Change this method to new() -> (Self, channel pairs for other components).
     /// Initializes an [Executor] that's ready to process messages on the provided channels.
     pub fn new(
-        ui: ChannelPair<UiMessage, ui::Message>,
+        ui: ChannelPair<Report, ui::Message>,
         logger: ChannelPair<(), ()>,
         network: ChannelPair<(), ()>,
     ) -> Self {
@@ -51,6 +53,7 @@ impl Executor {
             ui,
             logger,
             network,
+            plans: VecDeque::new(),
         }
     }
 
@@ -67,52 +70,18 @@ impl Executor {
     }
 }
 
-/// Messages that [Executor] may send to when in the [UiState::Plan] state.
-///
-/// In general, messages sent out to [network interfaces] are also broadcast to the [ui] and
-/// [logger], since those parties might be interested in observing these events. Some messages have
-/// different behaviors. The behavior of each message is documented below.
-///
-/// # Standard broadcast
-///
-/// Many messages are marked as "standard broadcast". This is shorthand for the following:
-///
-/// * The primary recipient of the message is the [network interface]. Any expected actions will
-/// still be documented.
-///
-/// * The [logger] receives an informational copy and records the event.
-///
-/// * The [ui] receives an informational copy so that it may update the user's view if desired; no
-/// action is required.
-///
-/// [logger]: crate::logger
-/// [network interface]: core::net
-#[derive(Debug)]
-pub enum Message {
-    /// Requests that the [HostAction] be run.
-    ///
-    /// When the [network interface] receives this, it should compile the [Action] and send it to
-    /// `sira-client`. Once the [Action] has finished running, the [network interface] should send
-    /// a [crate::net::Message::ActionReport].
-    ///
-    /// This is a standard broadcast.
-    ///
-    /// [Action]: crate::core::action::Action
-    /// [network interface]: crate::net
-    RunAction(Arc<HostAction>),
-
-    /// Requests that the [network interface] disconnect from a host, e.g. because there are no
-    /// more [Action]s to run.
-    ///
-    /// When the [network interface] receives this, it should disconnect from the given host. If it
-    /// was not connected to (or aware of) the host, it should ignore this message. This message
-    /// has no response in [crate::net::Message].
-    ///
-    /// This is a standard broadcast.
-    ///
-    /// [Action]: crate::core::action::Action
-    /// [network interface]: crate::net
-    Disconnect(String),
+pub enum NetworkControlMessage {
+    RunAction(HostAction),
 }
 
-pub enum UiMessage {}
+/// Status updates sent to the [ui] and [logger].
+///
+/// [logger]: crate::logger
+pub enum Report {
+    /// There's no more work to do; the program is now either idle or finished, depending on the
+    /// UI's program flow.
+    Done,
+
+    /// Pass through a report from the network.
+    NetworkReport(network::Report),
+}
