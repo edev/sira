@@ -47,19 +47,10 @@ pub struct ChannelPair<S, R> {
 }
 
 impl Executor {
-    // TODO Change this method to new() -> (Self, channel pairs for other components).
     /// Initializes an [Executor] that's ready to process messages on the provided channels.
-    pub fn new(
-        ui: ChannelPair<Report, ui::Message>,
-        logger: ExecutiveLog,
-        network: ChannelPair<NetworkControlMessage, network::Report>,
-    ) -> Self {
-        Executor {
-            ui,
-            logger,
-            network,
-            plans: VecDeque::new(),
-        }
+    #[allow(unused_variables)]
+    pub fn new(logger: ExecutiveLog) -> (Self, ui::ChannelPair, network::ChannelPair) {
+        todo!()
     }
 
     /// Starts processing messages and handling program logic.
