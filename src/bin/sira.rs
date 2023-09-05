@@ -11,19 +11,19 @@ fn main() {
 
     let plan = Plan::new();
 
-    let (ui_state, exec_ui_state) = ui::State::new();
+    // let (ui_state, exec_ui_state) = ui::State::new();
 
-    let (sender, receiver) = channel::unbounded();
-    let exec_logger = ChannelPair { sender, receiver };
-    let (sender, receiver) = channel::unbounded();
-    let exec_network = ChannelPair { sender, receiver };
-    let executor = Executor::new(exec_ui_state, exec_logger, exec_network);
+    // let (sender, receiver) = channel::unbounded();
+    // let exec_logger = ChannelPair { sender, receiver };
+    // let (sender, receiver) = channel::unbounded();
+    // let exec_network = ChannelPair { sender, receiver };
+    // let executor = Executor::new(exec_ui_state, exec_logger, exec_network);
 
-    let _exec_handle = thread::spawn(|| executor.run());
+    // let _exec_handle = thread::spawn(|| executor.run());
 
-    let idle_state = match ui_state {
-        ui::State::Idle(idle_state) => idle_state,
-        x => panic!("Expected idle state, but received: {:?}", x),
-    };
-    let _running_state = idle_state.start(plan);
+    // let idle_state = match ui_state {
+    //     ui::State::Idle(idle_state) => idle_state,
+    //     x => panic!("Expected idle state, but received: {:?}", x),
+    // };
+    // let _running_state = idle_state.start(plan);
 }
