@@ -1,4 +1,6 @@
-//! This module will contain some sort of interface to a logger. It is NYI.
+//! The public API for building loggers for Sira. Does not contain a logger implementation.
+//!
+//! If you're looking to implement your own logger, start with [Logger].
 
 #[cfg(doc)]
 use crate::executor::Executor;
