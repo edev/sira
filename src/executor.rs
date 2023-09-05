@@ -24,6 +24,7 @@ use crate::core::action::HostAction;
 use crate::core::plan::Plan;
 #[cfg(doc)]
 use crate::logger;
+use crate::logger::ExecutiveLog;
 use crate::network;
 use crate::ui;
 use crossbeam::channel::{Receiver, Sender};
@@ -33,7 +34,7 @@ use std::collections::VecDeque;
 #[allow(dead_code)]
 pub struct Executor {
     ui: ChannelPair<Report, ui::Message>,
-    logger: ChannelPair<(), ()>,
+    logger: ExecutiveLog,
     network: ChannelPair<(), ()>,
     plans: VecDeque<Plan>,
 }
@@ -50,7 +51,7 @@ impl Executor {
     /// Initializes an [Executor] that's ready to process messages on the provided channels.
     pub fn new(
         ui: ChannelPair<Report, ui::Message>,
-        logger: ChannelPair<(), ()>,
+        logger: ExecutiveLog,
         network: ChannelPair<(), ()>,
     ) -> Self {
         Executor {
@@ -84,6 +85,7 @@ pub enum NetworkControlMessage {
 }
 
 /// Status updates sent to the [ui] and [logger].
+// TODO Implement std::fmt::Display.
 pub enum Report {
     /// There's no more work to do; the program is now either idle or finished, depending on the
     /// UI's program flow.
