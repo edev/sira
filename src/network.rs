@@ -22,7 +22,7 @@ use crate::executor::Executor;
 use std::fmt;
 use std::sync::Arc;
 
-/// The UI's channels of communication with the rest of Sira (through [Executor]).
+/// The network's channels of communication with the rest of Sira (through [Executor]).
 pub type ChannelPair = executor::ChannelPair<Report, executor::NetworkControlMessage>;
 
 /// Messages that a network module can send to [Executor].
