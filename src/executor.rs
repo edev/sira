@@ -29,6 +29,7 @@ use crate::network;
 use crate::ui;
 use crossbeam::channel::{Receiver, Sender};
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 /// Coordinates message routing, plan execution, and program flow.
 #[allow(dead_code)]
@@ -72,7 +73,13 @@ impl Executor {
 /// these instructions.
 pub enum NetworkControlMessage {
     /// Instructs the [network] to run an [Action] on a specific host.
-    RunAction(HostAction),
+    RunAction(Arc<HostAction>),
+
+    /// Instructs the [network] to disconnect from the specified host.
+    ///
+    /// This is typically sent after [Executor] receives a [network::Report::ActionResult] for the
+    /// last [Action] that [Executor] needs to run on a given host.
+    Disconnect(String),
 }
 
 /// Status updates sent to the [ui] and [logger].
