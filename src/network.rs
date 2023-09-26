@@ -16,14 +16,15 @@
 //! can probably adapt it to Sira without too much trouble or too many surprises.
 
 use crate::core::action::Action;
-use crate::executor;
 #[cfg(doc)]
 use crate::executor::Executor;
+use crate::executor::{self, NetworkControlMessage};
 use std::fmt;
+use std::process::Output;
 use std::sync::Arc;
 
 /// The network's channels of communication with the rest of Sira (through [Executor]).
-pub type ChannelPair = executor::ChannelPair<Report, executor::NetworkControlMessage>;
+pub type ChannelPair = executor::ChannelPair<Report, NetworkControlMessage>;
 
 /// Messages that a network module can send to [Executor].
 #[derive(Debug)]
@@ -78,7 +79,7 @@ pub enum Report {
         task_source: Option<String>,
         task_name: String,
         action: Arc<Action>,
-        result: Result<(), ()>,
+        result: anyhow::Result<Output>,
     },
 }
 
@@ -167,6 +168,9 @@ mod tests {
         mod display {
             use super::*;
             use Report::*;
+            // TODO Figure out how to properly handle the OS-specific nature of this `use`.
+            use std::os::unix::process::ExitStatusExt;
+            use std::process::ExitStatus;
 
             #[test]
             fn connecting() {
@@ -258,12 +262,22 @@ mod tests {
 
             #[test]
             fn action_result() {
+                let output = Output {
+                    status: ExitStatus::from_raw(0),
+                    stdout: "Success".into(),
+                    stderr: "".into(),
+                };
+
                 assert_eq!(
                     "Action complete on host:\n\
                     \tManifest: mname (mani.fest)\n\
                     \tTask: tname (ta.sk)\n\
                     \tAction: Shell { commands: [\"pwd\"] }\n\
-                    \tResult: Ok(())",
+                    \tResult: Ok(Output { \
+                        status: ExitStatus(unix_wait_status(0)), \
+                            stdout: \"Success\", \
+                            stderr: \"\" \
+                        })",
                     ActionResult {
                         host: "host".to_string(),
                         manifest_source: Some("mani.fest".to_string()),
@@ -273,7 +287,7 @@ mod tests {
                         action: Arc::new(Action::Shell {
                             commands: vec!["pwd".to_string()],
                         }),
-                        result: Ok(()),
+                        result: Ok(output.clone()),
                     }
                     .to_string(),
                 );
@@ -283,7 +297,11 @@ mod tests {
                     \tManifest: mname (Unknown source)\n\
                     \tTask: tname (Unknown source)\n\
                     \tAction: Shell { commands: [\"pwd\"] }\n\
-                    \tResult: Ok(())",
+                    \tResult: Ok(Output { \
+                        status: ExitStatus(unix_wait_status(0)), \
+                            stdout: \"Success\", \
+                            stderr: \"\" \
+                        })",
                     ActionResult {
                         host: "host".to_string(),
                         manifest_source: None,
@@ -293,7 +311,7 @@ mod tests {
                         action: Arc::new(Action::Shell {
                             commands: vec!["pwd".to_string()],
                         }),
-                        result: Ok(()),
+                        result: Ok(output.clone()),
                     }
                     .to_string(),
                 );

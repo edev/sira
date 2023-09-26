@@ -8,5 +8,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 crossbeam = "0.8.2"
-openssh = "0.9"
+openssh = { version = "0.10", features = ["native-mux"], optional = true }
+tokio = { version = "1.32", features = ["rt"], optional = true }
 regex = "1.9"
+
+[features]
+default = ["openssh"]
+openssh = ["dep:openssh", "dep:tokio"]

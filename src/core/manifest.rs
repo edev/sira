@@ -47,7 +47,13 @@ impl Manifest {
         include: Vec<Task>,
         vars: Vec<(String, String)>,
     ) -> Self {
-        todo!()
+        Manifest {
+            source,
+            name,
+            hosts,
+            include,
+            vars,
+        }
     }
 
     /// Returns a [TaskIter] over tasks in this manifest, or [None] if `host` doesn't

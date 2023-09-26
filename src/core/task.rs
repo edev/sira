@@ -30,6 +30,27 @@ pub struct Task {
 }
 
 impl Task {
+    /// Constructs a new [Task].
+    ///
+    /// Values are immutable once constructed. There is no builder API or other interface meant for
+    /// easily building these values programmatically, as this is not an intended use case of Sira
+    /// at this time.
+    pub fn new(
+        source: Option<String>,
+        name: String,
+        user: String,
+        actions: Vec<Action>,
+        vars: Vec<(String, String)>,
+    ) -> Self {
+        Task {
+            source,
+            name,
+            user,
+            actions,
+            vars,
+        }
+    }
+
     /// Where this task came from.
     ///
     /// For instance, a task loaded from a file might set this to the path to the file.
