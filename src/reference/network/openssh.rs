@@ -104,10 +104,10 @@ impl NetworkClientThread for ClientThread {
                         .sender
                         .send(Report::RunningAction {
                             host: self.host.clone(),
-                            manifest_source: host_action.manifest().source().clone(),
-                            manifest_name: host_action.manifest().name().to_string(),
-                            task_source: host_action.task().source().clone(),
-                            task_name: host_action.task().name().to_string(),
+                            manifest_source: host_action.manifest().source.clone(),
+                            manifest_name: host_action.manifest().name.to_string(),
+                            task_source: host_action.task().source.clone(),
+                            task_name: host_action.task().name.to_string(),
                             action: Arc::new(host_action.action().clone()),
                         })
                         .unwrap();
@@ -163,10 +163,10 @@ impl NetworkClientThread for ClientThread {
                         .sender
                         .send(Report::ActionResult {
                             host: self.host.clone(),
-                            manifest_source: host_action.manifest().source().clone(),
-                            manifest_name: host_action.manifest().name().to_string(),
-                            task_source: host_action.task().source().clone(),
-                            task_name: host_action.task().name().to_string(),
+                            manifest_source: host_action.manifest().source.clone(),
+                            manifest_name: host_action.manifest().name.to_string(),
+                            task_source: host_action.task().source.clone(),
+                            task_name: host_action.task().name.to_string(),
                             action: Arc::new(host_action.action().clone()),
                             result: output,
                         })

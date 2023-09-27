@@ -11,20 +11,34 @@ use std::sync::Arc;
 /// as well.
 #[derive(Clone, Debug)]
 pub struct Manifest {
-    /// The file from which this value was parsed (if any).
-    source: Option<String>,
+    /// Where this manifest came from.
+    ///
+    /// For instance, a manifest loaded from a file should set this to the path to the file.
+    ///
+    /// For manifests from other sources, e.g. directly from Rust or from network sources,
+    /// there is currently no standard value to place here, because these are not intended
+    /// use cases for Sira at this time.
+    pub source: Option<String>,
 
-    /// Used for informational, logging, and debugging purposes.
-    name: String,
+    /// The [Manifest]'s name. Used for informational, logging, and debugging purposes.
+    pub name: String,
 
+    /// The list of hosts on which this manifest will run.
+    ///
     /// Order is perserved from the source file but is typically unimportant.
-    hosts: Vec<String>,
+    pub hosts: Vec<String>,
 
+    /// [Task]s (typically loaded from task files) that comprise this manifest.
+    ///
     /// Order is preserved from the source file. Tasks are executed in order.
-    include: Vec<Task>,
+    pub include: Vec<Task>,
 
+    /// [Manifest]-level variables, which will eventually be compiled when actions are run.
+    ///
+    /// Variables are stored as `(name, value)` tuples.
+    ///
     /// Order is preserved from the source file but is typically unimportant.
-    vars: Vec<(String, String)>,
+    pub vars: Vec<(String, String)>,
 }
 
 /// Loads [Manifest] values from a manifest file.
@@ -34,28 +48,6 @@ pub fn load_manifests<R: std::io::BufRead>(source: R) -> Vec<Manifest> {
 }
 
 impl Manifest {
-    /// Constructs a new [Manifest].
-    ///
-    /// Values are immutable once constructed. There is no builder API or other interface meant for
-    /// easily building these values programmatically, as this is not an intended use case of Sira
-    /// at this time.
-    #[allow(unused_variables)]
-    pub fn new(
-        source: Option<String>,
-        name: String,
-        hosts: Vec<String>,
-        include: Vec<Task>,
-        vars: Vec<(String, String)>,
-    ) -> Self {
-        Manifest {
-            source,
-            name,
-            hosts,
-            include,
-            vars,
-        }
-    }
-
     /// Returns a [TaskIter] over tasks in this manifest, or [None] if `host` doesn't
     /// match.
     pub(in crate::core) fn tasks_for<'p>(&'p self, host: &'p str) -> Option<TaskIter<'p>> {
@@ -70,39 +62,6 @@ impl Manifest {
             task_iter: self.include.iter(),
             action_iter: None,
         })
-    }
-
-    /// Where this manifest came from.
-    ///
-    /// For instance, a manifest loaded from a file might set this to the path to the file.
-    ///
-    /// For manifests from other sources, e.g. directly from Rust or from network sources,
-    /// there is currently no standard value to place here, because these are not intended
-    /// use cases for Sira at this time.
-    pub fn source(&self) -> &Option<String> {
-        &self.source
-    }
-
-    /// The manifest's name. This has no bearing on program execution and is simply a convenience.
-    pub fn name(&self) -> &String {
-        &self.name
-    }
-
-    /// Hosts on which this manifest will run.
-    pub fn hosts(&self) -> &[String] {
-        &self.hosts
-    }
-
-    /// [Task]s (typically loaded from task files) that comprise this manifest.
-    pub fn tasks(&self) -> &[Task] {
-        &self.include
-    }
-
-    /// Manifest-level variables, which will eventually be compiled when actions are run.
-    ///
-    /// Variables are stored as `(name, value)` tuples.
-    pub fn vars(&self) -> &[(String, String)] {
-        &self.vars
     }
 }
 
@@ -155,7 +114,7 @@ impl<'p> Iterator for TaskIter<'p> {
 
         // If we have another `Task`, then save an iterator over its `Action`s and retry.
         if let Some(task) = self.task_iter.next() {
-            self.action_iter = Some(task.actions().iter());
+            self.action_iter = Some(task.actions.iter());
             self.task = Some(task);
             return self.next();
         }
