@@ -211,10 +211,20 @@ mod tests {
                 plan: &plan,
             };
 
-            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+            #[rustfmt::skip]
+            let by_reference: Vec<_> = host_plan
+                .iter()
+                .map(|ha| ha.action().clone())
+                .collect();
+
+            let by_value: Vec<_> = host_plan
+                .into_iter()
+                .map(|ha| ha.action().clone())
+                .collect();
 
             let expected_host_actions = vec![action.clone(), action];
-            assert_eq!(expected_host_actions, host_actions);
+            assert_eq!(expected_host_actions, by_reference);
+            assert_eq!(expected_host_actions, by_value);
         }
 
         #[test]
@@ -227,10 +237,20 @@ mod tests {
                 plan: &plan,
             };
 
-            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+            #[rustfmt::skip]
+            let by_reference: Vec<_> = host_plan
+                .iter()
+                .map(|ha| ha.action().clone())
+                .collect();
+
+            let by_value: Vec<_> = host_plan
+                .into_iter()
+                .map(|ha| ha.action().clone())
+                .collect();
 
             let expected_host_actions = vec![action.clone(), action];
-            assert_eq!(expected_host_actions, host_actions);
+            assert_eq!(expected_host_actions, by_reference);
+            assert_eq!(expected_host_actions, by_value);
         }
 
         #[test]
@@ -244,10 +264,20 @@ mod tests {
                 plan: &plan,
             };
 
-            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+            #[rustfmt::skip]
+            let by_reference: Vec<_> = host_plan
+                .iter()
+                .map(|ha| ha.action().clone())
+                .collect();
+
+            let by_value: Vec<_> = host_plan
+                .into_iter()
+                .map(|ha| ha.action().clone())
+                .collect();
 
             let expected_host_actions = vec![action];
-            assert_eq!(expected_host_actions, host_actions);
+            assert_eq!(expected_host_actions, by_reference);
+            assert_eq!(expected_host_actions, by_value);
         }
 
         #[test]
@@ -261,10 +291,38 @@ mod tests {
                 plan: &plan,
             };
 
-            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+            #[rustfmt::skip]
+            let by_reference: Vec<_> = host_plan
+                .iter()
+                .map(|ha| ha.action().clone())
+                .collect();
+
+            let by_value: Vec<_> = host_plan
+                .into_iter()
+                .map(|ha| ha.action().clone())
+                .collect();
 
             let expected_host_actions = vec![action];
-            assert_eq!(expected_host_actions, host_actions);
+            assert_eq!(expected_host_actions, by_reference);
+            assert_eq!(expected_host_actions, by_value);
+        }
+
+        #[test]
+        fn implements_into_iterator() {
+            // Just a quick test to verify that we actually implement [IntoIterator] for both
+            // by-value and by-reference iteration. The tests above use [IntoIterator] for by-value
+            // iteration but use [HostPlan::iter] for by-reference iteration.
+
+            let (plan, _, _, _) = plan();
+
+            let host_plan = HostPlan {
+                host: &plan.manifests[0].hosts[0],
+                plan: &plan,
+            };
+
+            let by_reference: Vec<_> = (&host_plan).into_iter().collect();
+            let by_value: Vec<_> = host_plan.into_iter().collect();
+            assert_eq!(by_reference, by_value);
         }
     }
 }
