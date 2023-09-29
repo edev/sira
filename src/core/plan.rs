@@ -189,3 +189,82 @@ impl<'p> IntoIterator for HostPlan<'p> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::fixtures::plan;
+    use super::*;
+
+    mod iterators {
+        // We test both by-reference and by-value iterators for [HostPlan] here. They're parallel,
+        // and they both return [HostAction] values, so it makes sense to test them together.
+
+        use super::*;
+
+        #[test]
+        fn returns_all_actions_in_a_manifest() {
+            let (mut plan, _, _, action) = plan();
+            plan.manifests[0].include[0].actions.push(action.clone());
+
+            let host_plan = HostPlan {
+                host: &plan.manifests[0].hosts[0],
+                plan: &plan,
+            };
+
+            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+
+            let expected_host_actions = vec![action.clone(), action];
+            assert_eq!(expected_host_actions, host_actions);
+        }
+
+        #[test]
+        fn iterates_over_multiple_manifests() {
+            let (mut plan, manifest, _, action) = plan();
+            plan.manifests.push(manifest);
+
+            let host_plan = HostPlan {
+                host: &plan.manifests[0].hosts[0],
+                plan: &plan,
+            };
+
+            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+
+            let expected_host_actions = vec![action.clone(), action];
+            assert_eq!(expected_host_actions, host_actions);
+        }
+
+        #[test]
+        fn skips_empty_manifests() {
+            let (mut plan, mut manifest, _, action) = plan();
+            manifest.include.clear();
+            plan.manifests.insert(0, manifest);
+
+            let host_plan = HostPlan {
+                host: &plan.manifests[0].hosts[0],
+                plan: &plan,
+            };
+
+            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+
+            let expected_host_actions = vec![action];
+            assert_eq!(expected_host_actions, host_actions);
+        }
+
+        #[test]
+        fn skips_manifests_for_different_hosts() {
+            let (mut plan, mut manifest, _, action) = plan();
+            manifest.hosts.clear();
+            plan.manifests.insert(0, manifest);
+
+            let host_plan = HostPlan {
+                host: &plan.manifests[1].hosts[0],
+                plan: &plan,
+            };
+
+            let host_actions: Vec<_> = host_plan.iter().map(|ha| ha.action().clone()).collect();
+
+            let expected_host_actions = vec![action];
+            assert_eq!(expected_host_actions, host_actions);
+        }
+    }
+}
