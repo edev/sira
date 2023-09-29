@@ -13,7 +13,7 @@ use std::sync::Arc;
 ///
 /// This struct constitutes the public interface that executors use to interact with
 /// [Manifest]s, [Task]s, and [Action]s on the controller.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Plan {
     /// The official, ordered list of manifests that comprise the plan.
     ///
@@ -61,6 +61,7 @@ impl Plan {
 }
 
 /// A [Plan] in the context of a single host on which it will run.
+#[derive(Debug)]
 pub struct HostPlan<'p> {
     /// The host on which this plan will run.
     host: &'p str,
@@ -85,6 +86,7 @@ impl<'p> HostPlan<'p> {
 }
 
 /// An iterator that yields actions to take on a specific host, in order.
+#[derive(Debug)]
 pub struct HostPlanIter<'p> {
     /// The host on which the plan is intended to run.
     host: &'p str,
@@ -138,6 +140,7 @@ impl<'p> IntoIterator for &HostPlan<'p> {
 }
 
 /// Owned version of [HostPlanIter].
+#[derive(Debug)]
 pub struct HostPlanIntoIter {
     /// The host on which the plan is intended to run.
     host: String,

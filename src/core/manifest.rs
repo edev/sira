@@ -9,7 +9,7 @@ use std::sync::Arc;
 ///
 /// This type is typically parsed from a manifest file, but it can be constructed programmatically
 /// as well.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Manifest {
     /// Where this manifest came from.
     ///
@@ -87,6 +87,7 @@ impl Manifest {
 ///
 /// Returns [HostAction] values representing a given [Action] in the context of a host and
 /// [Manifest].
+#[derive(Debug)]
 pub(in crate::core) struct TaskIter<'p> {
     /// The host on which these tasks will run.
     ///
@@ -144,6 +145,7 @@ impl<'p> Iterator for TaskIter<'p> {
 }
 
 /// Owned version of [TaskIter].
+#[derive(Debug)]
 pub(in crate::core) struct TaskIntoIter {
     /// The host on which these tasks will run.
     ///
