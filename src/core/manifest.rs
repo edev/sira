@@ -208,3 +208,318 @@ impl Iterator for TaskIntoIter {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::fixtures::plan;
+    use super::*;
+
+    mod manifest {
+        use super::*;
+
+        // These tests are parallel to those for tasks_for.
+        mod tasks_for {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let (_, manifest, _, _) = plan();
+
+                let maybe_task_iter: Option<TaskIter> = manifest.tasks_for(&manifest.hosts[0]);
+                assert!(
+                    maybe_task_iter.is_some(),
+                    "Manifest::tasks_for should return a Some value when given a valid host"
+                );
+                let task_iter = maybe_task_iter.unwrap();
+
+                assert_eq!(&manifest.hosts[0], &task_iter.host);
+
+                assert_eq!(&manifest, task_iter.manifest);
+
+                assert!(task_iter.task.is_none());
+
+                assert_eq!(
+                    manifest.include.iter().collect::<Vec<&Task>>(),
+                    task_iter.manifest.include.iter().collect::<Vec<&Task>>(),
+                );
+
+                assert!(task_iter.action_iter.is_none());
+            }
+
+            #[test]
+            fn works_for_nth_host() {
+                let (_, mut manifest, _, _) = plan();
+
+                // Push a few extra hosts; we'll query one of the middle entries in a moment.
+                manifest.hosts.push("garden".into());
+                manifest.hosts.push("gardenia".into());
+                manifest.hosts.push("chrysanthemum".into());
+
+                let maybe_task_iter: Option<TaskIter> = manifest.tasks_for("gardenia");
+                assert!(
+                    maybe_task_iter.is_some(),
+                    "Manifest::tasks_for should return a Some value when given a valid host"
+                );
+                let task_iter = maybe_task_iter.unwrap();
+
+                assert_eq!(&"gardenia", &task_iter.host);
+
+                assert_eq!(&manifest, task_iter.manifest);
+
+                assert!(task_iter.task.is_none());
+
+                assert_eq!(
+                    manifest.include.iter().collect::<Vec<&Task>>(),
+                    task_iter.manifest.include.iter().collect::<Vec<&Task>>(),
+                );
+
+                assert!(task_iter.action_iter.is_none());
+            }
+
+            #[test]
+            fn returns_none_if_host_not_found() {
+                let (_, manifest, _, _) = plan();
+
+                let maybe_task_iter: Option<TaskIter> = manifest.tasks_for("gardenia");
+                assert!(maybe_task_iter.is_none());
+            }
+        }
+
+        // These tests are parallel to those for tasks_for.
+        mod into_tasks_for {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let (_, manifest, _, _) = plan();
+
+                let maybe_task_into_iter: Option<TaskIntoIter> =
+                    manifest.clone().into_tasks_for(&manifest.hosts[0]);
+                assert!(
+                    maybe_task_into_iter.is_some(),
+                    "Manifest::tasks_for should return a Some value when given a valid host"
+                );
+                let task_into_iter = maybe_task_into_iter.unwrap();
+
+                assert_eq!(&manifest.hosts[0], &task_into_iter.host);
+
+                assert_eq!(&manifest, &task_into_iter.manifest);
+
+                assert!(task_into_iter.task.is_none());
+
+                assert_eq!(
+                    manifest.include.iter().collect::<Vec<&Task>>(),
+                    task_into_iter
+                        .manifest
+                        .include
+                        .iter()
+                        .collect::<Vec<&Task>>(),
+                );
+
+                assert!(task_into_iter.action_iter.is_none());
+            }
+
+            #[test]
+            fn works_for_nth_host() {
+                let (_, mut manifest, _, _) = plan();
+
+                // Push a few extra hosts; we'll query one of the middle entries in a moment.
+                manifest.hosts.push("garden".into());
+                manifest.hosts.push("gardenia".into());
+                manifest.hosts.push("chrysanthemum".into());
+
+                let maybe_task_into_iter: Option<TaskIntoIter> =
+                    manifest.clone().into_tasks_for("gardenia");
+                assert!(
+                    maybe_task_into_iter.is_some(),
+                    "Manifest::tasks_for should return a Some value when given a valid host"
+                );
+                let task_into_iter = maybe_task_into_iter.unwrap();
+
+                assert_eq!(&"gardenia", &task_into_iter.host);
+
+                assert_eq!(&manifest, &task_into_iter.manifest);
+
+                assert!(task_into_iter.task.is_none());
+
+                assert_eq!(
+                    manifest.include.iter().collect::<Vec<&Task>>(),
+                    task_into_iter
+                        .manifest
+                        .include
+                        .iter()
+                        .collect::<Vec<&Task>>(),
+                );
+
+                assert!(task_into_iter.action_iter.is_none());
+            }
+
+            #[test]
+            fn returns_none_if_host_not_found() {
+                let (_, manifest, _, _) = plan();
+
+                let maybe_task_into_iter: Option<TaskIntoIter> =
+                    manifest.into_tasks_for("gardenia");
+
+                assert!(maybe_task_into_iter.is_none());
+            }
+        }
+    }
+
+    // We have two iterators that do the exact same things, one for owned values and one for
+    // references. Both produce [HostAction] values, and both follow parallel logic. Therefore, it
+    // makes the most sense to test them together, as we do below.
+    //
+    // Rather then picking apart the intricacies of every possible behavior for this multi-level
+    // iteration, we simply provide a single, complex test that puts it through its paces fairly
+    // thoroughly and test a couple of edge cases separately. It's possible to spend much more time
+    // doing much more thorough testing, but the algorithm is simple and mostly relies on proven
+    // standard library code, so these tests are assumed sufficient until proven otherwise.
+    mod iterators {
+        use super::*;
+
+        #[test]
+        fn returns_all_actions_for_all_manifests_and_tasks() {
+            // Actions for Task 1 (below).
+            let task_1_actions = vec![
+                Action::Shell {
+                    commands: vec!["echo hi".into(), "pwd".into()],
+                },
+                Action::LineInFile {
+                    after: "localhost".into(),
+                    insert: vec!["192.168.1.93 zen3".into()],
+                    path: "/etc/hosts".into(),
+                },
+                Action::Upload {
+                    from: "from".into(),
+                    to: "to".into(),
+                },
+                Action::Download {
+                    from: "from".into(),
+                    to: "to".into(),
+                },
+            ];
+
+            // Task 2 has no actions.
+
+            // Actions for Task 3 (below).
+            let task_3_actions = vec![Action::Shell {
+                commands: vec!["echo bye".into(), "logout".into()],
+            }];
+
+            let tasks = vec![
+                // A normal, routine task.
+                Task {
+                    source: None,
+                    name: "Task 1".into(),
+                    user: "george".into(),
+                    actions: task_1_actions.clone(),
+                    vars: vec![],
+                },
+                // A corner case: a task that's empty.
+                Task {
+                    source: None,
+                    name: "Task 2".into(),
+                    user: "george".into(),
+                    actions: vec![],
+                    vars: vec![],
+                },
+                // Another routine task afterward.
+                Task {
+                    source: None,
+                    name: "Task 3".into(),
+                    user: "george".into(),
+                    actions: task_3_actions.clone(),
+                    vars: vec![],
+                },
+            ];
+
+            let manifest = Manifest {
+                source: None,
+                name: "API test".into(),
+                hosts: vec!["api_test".into()],
+                include: tasks,
+                vars: vec![],
+            };
+
+            let task_1_host_actions = task_1_actions.into_iter().map(|action| {
+                Arc::new(HostAction::new(
+                    "api_test",
+                    &manifest,
+                    &manifest.include[0],
+                    &action,
+                ))
+            });
+
+            let task_3_host_actions = task_3_actions.into_iter().map(|action| {
+                Arc::new(HostAction::new(
+                    "api_test",
+                    &manifest,
+                    &manifest.include[2],
+                    &action,
+                ))
+            });
+
+            let expected_host_actions: Vec<Arc<HostAction>> =
+                task_1_host_actions.chain(task_3_host_actions).collect();
+
+            assert_eq!(
+                expected_host_actions,
+                manifest
+                    .tasks_for("api_test")
+                    .unwrap()
+                    .collect::<Vec<Arc<HostAction>>>(),
+            );
+
+            assert_eq!(
+                expected_host_actions,
+                manifest
+                    .into_tasks_for("api_test")
+                    .unwrap()
+                    .collect::<Vec<Arc<HostAction>>>(),
+            );
+        }
+
+        #[test]
+        fn returns_none_if_no_tasks() {
+            let manifest = Manifest {
+                source: None,
+                name: "API test".into(),
+                hosts: vec!["api_test".into()],
+                include: vec![],
+                vars: vec![],
+            };
+
+            let mut task_iter = manifest.tasks_for("api_test").unwrap();
+            assert!(task_iter.next().is_none());
+
+            let mut task_into_iter = manifest.into_tasks_for("api_test").unwrap();
+            assert!(task_into_iter.next().is_none());
+        }
+
+        #[test]
+        fn returns_none_if_no_actions_in_last_task() {
+            let task = Task {
+                source: None,
+                name: "API test".into(),
+                user: "george".into(),
+                actions: vec![],
+                vars: vec![],
+            };
+
+            let manifest = Manifest {
+                source: None,
+                name: "API test".into(),
+                hosts: vec!["api_test".into()],
+                include: vec![task],
+                vars: vec![],
+            };
+
+            let mut task_iter = manifest.tasks_for("api_test").unwrap();
+            assert!(task_iter.next().is_none());
+
+            let mut task_into_iter = manifest.into_tasks_for("api_test").unwrap();
+            assert!(task_into_iter.next().is_none());
+        }
+    }
+}
