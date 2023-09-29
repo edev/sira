@@ -3,7 +3,7 @@
 #[cfg(doc)]
 use crate::core::action::Action;
 use crate::core::action::HostAction;
-use crate::core::manifest::{Manifest, TaskIter};
+use crate::core::manifest::{Manifest, TaskIntoIter, TaskIter};
 #[cfg(doc)]
 use crate::core::task::Task;
 use std::path::Path;
@@ -71,7 +71,7 @@ pub struct HostPlan<'p> {
 
 impl<'p> HostPlan<'p> {
     /// Returns an iterator over [Action]s on this host.
-    pub fn iter(&self) -> HostPlanIter {
+    pub fn iter(&self) -> HostPlanIter<'p> {
         HostPlanIter {
             host: self.host,
             manifests: self.plan.manifests.iter(),
@@ -125,5 +125,64 @@ impl<'p> Iterator for HostPlanIter<'p> {
         // If we don't have a `TaskIter` ready to yield a value, and we don't have another
         // `Manifest` to try, then we're done.
         None
+    }
+}
+
+impl<'p> IntoIterator for &HostPlan<'p> {
+    type Item = Arc<HostAction>;
+    type IntoIter = HostPlanIter<'p>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Owned version of [HostPlanIter].
+pub struct HostPlanIntoIter {
+    /// The host on which the plan is intended to run.
+    host: String,
+
+    /// An iterator over the manifests in this plan.
+    manifests: std::vec::IntoIter<Manifest>,
+
+    /// The current task iterator, which yields [HostAction] values.
+    ///
+    /// If there are no manifests in the plan, then there can be no current iterator. Thus,
+    /// this must be an optional type.
+    current_iter: Option<TaskIntoIter>,
+}
+
+impl Iterator for HostPlanIntoIter {
+    type Item = Arc<HostAction>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Modeled after [HostPlanIter].
+
+        if let Some(ref mut iter) = self.current_iter {
+            if let Some(next) = iter.next() {
+                return Some(next);
+            }
+        }
+
+        if let Some(next_manifest) = self.manifests.next() {
+            self.current_iter = next_manifest.into_tasks_for(&self.host);
+            return self.next();
+        }
+
+        None
+    }
+}
+
+impl<'p> IntoIterator for HostPlan<'p> {
+    type Item = Arc<HostAction>;
+    type IntoIter = HostPlanIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        // Modeled after [HostPlan::iter].
+        HostPlanIntoIter {
+            host: self.host.to_string(),
+            manifests: self.plan.manifests.clone().into_iter(),
+            current_iter: None,
+        }
     }
 }
