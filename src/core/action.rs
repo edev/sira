@@ -207,5 +207,33 @@ mod tests {
                 HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
             }
         }
+
+        #[test]
+        fn host_works() {
+            let (_, manifest, task, action) = plan();
+            let host_action = HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
+            assert_eq!(&manifest.hosts[0], host_action.host());
+        }
+
+        #[test]
+        fn manifest_works() {
+            let (_, manifest, task, action) = plan();
+            let host_action = HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
+            assert_eq!(&manifest, host_action.manifest());
+        }
+
+        #[test]
+        fn task_works() {
+            let (_, manifest, task, action) = plan();
+            let host_action = HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
+            assert_eq!(&task, host_action.task());
+        }
+
+        #[test]
+        fn action_works() {
+            let (_, manifest, task, action) = plan();
+            let host_action = HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
+            assert_eq!(&action, host_action.action());
+        }
     }
 }
