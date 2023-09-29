@@ -6,6 +6,7 @@ use crate::core::action::HostAction;
 use crate::core::manifest::{Manifest, TaskIntoIter, TaskIter};
 #[cfg(doc)]
 use crate::core::task::Task;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -40,15 +41,17 @@ impl Plan {
         todo!()
     }
 
-    /// Returns a list of hosts involved in this `Plan`.
-    ///
-    /// In order to prevent TOCTOU bugs in executors, this method deliberately returns
-    /// an immutable reference into the `Plan`. This prevents executors from adding new
-    /// manifests or otherwise modifying the plan after retrieving the list of hosts. If
-    /// you choose to clone the returned list of hosts and drop the reference, you are
-    /// taking responsibility for ensuring that you don't introduce any TOCTOU bugs.
-    pub fn hosts(&self) -> &[String] {
-        todo!()
+    /// Returns a list of hosts involved in this `Plan` in alphabetical order.
+    pub fn hosts(&self) -> Vec<String> {
+        let mut set = BTreeSet::new();
+
+        for manifest in &self.manifests {
+            for host in &manifest.hosts {
+                set.insert(host.to_string());
+            }
+        }
+
+        set.into_iter().collect()
     }
 
     /// Returns an execution plan for the specified host.
@@ -194,6 +197,76 @@ impl<'p> IntoIterator for HostPlan<'p> {
 mod tests {
     use super::super::fixtures::plan;
     use super::*;
+
+    mod plan {
+        use super::*;
+
+        mod hosts {
+            use super::*;
+
+            #[test]
+            fn works_with_no_manifests() {
+                let plan = Plan { manifests: vec![] };
+                assert_eq!(Vec::<String>::new(), plan.hosts());
+            }
+
+            #[test]
+            fn works_with_no_hosts() {
+                let (mut plan, _, _, _) = plan();
+                plan.manifests[0].hosts.clear();
+                assert_eq!(Vec::<String>::new(), plan.hosts());
+            }
+
+            #[test]
+            fn works_with_multiple_manifests() {
+                let (mut plan, _, _, _) = plan();
+
+                // Give `plan` two manifests with no hosts.
+                plan.manifests[0].hosts.clear();
+                plan.manifests.push(plan.manifests[0].clone());
+
+                // Give the manifests some already-sorted hosts, since we're not testing sorting in
+                // this test case.
+                plan.manifests[0].hosts.push("aaa".to_string());
+                plan.manifests[1].hosts.push("zzz".to_string());
+
+                let expected_hosts = vec!["aaa".to_string(), "zzz".to_string()];
+                assert_eq!(expected_hosts, plan.hosts());
+            }
+
+            #[test]
+            fn deduplicates_hosts() {
+                let (mut plan, _, _, _) = plan();
+
+                plan.manifests.push(plan.manifests[0].clone());
+                assert_eq!(plan.manifests[0].hosts, plan.hosts());
+            }
+
+            #[test]
+            fn sorts_hosts() {
+                let (mut plan, _, _, _) = plan();
+
+                // Give `plan` two manifests with no hosts.
+                plan.manifests[0].hosts.clear();
+                plan.manifests.push(plan.manifests[0].clone());
+
+                // Give both manifests out-of-order hosts, so we can make sure they really do get
+                // sorted both within a manifest and across manifests.
+                plan.manifests[0].hosts.push("zzz".to_string());
+                plan.manifests[0].hosts.push("yyy".to_string());
+                plan.manifests[1].hosts.push("bbb".to_string());
+                plan.manifests[1].hosts.push("aaa".to_string());
+
+                let expected_hosts = vec![
+                    "aaa".to_string(),
+                    "bbb".to_string(),
+                    "yyy".to_string(),
+                    "zzz".to_string(),
+                ];
+                assert_eq!(expected_hosts, plan.hosts());
+            }
+        }
+    }
 
     mod iterators {
         // We test both by-reference and by-value iterators for [HostPlan] here. They're parallel,
