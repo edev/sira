@@ -59,12 +59,27 @@ impl Plan {
     /// Returns [None] if `host` was not in the plan's list of hosts.
     #[allow(unused_variables)]
     pub fn plan_for(&self, host: &str) -> Option<HostPlan> {
-        todo!()
+        for manifest in &self.manifests {
+            // We're intentionally picking the first matching host reference from the plan itself
+            // so we can return an internal reference instead of the host value we were passed.
+            // It's a minor concern, but it will prevent someone from being surprised that we're
+            // holding a reference to the value we passed in when the lifetimes of HostPlan suggest
+            // we'll use an internal reference.
+            for hst in &manifest.hosts {
+                if hst == host {
+                    return Some(HostPlan {
+                        host: hst,
+                        plan: self,
+                    });
+                }
+            }
+        }
+        None
     }
 }
 
 /// A [Plan] in the context of a single host on which it will run.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct HostPlan<'p> {
     /// The host on which this plan will run.
     host: &'p str,
@@ -264,6 +279,56 @@ mod tests {
                     "zzz".to_string(),
                 ];
                 assert_eq!(expected_hosts, plan.hosts());
+            }
+        }
+
+        mod plan_for {
+            use super::*;
+
+            #[test]
+            fn works_with_no_manifests() {
+                let plan = Plan { manifests: vec![] };
+                assert!(plan.plan_for("dave-desktop").is_none());
+            }
+
+            #[test]
+            fn works_with_no_hosts() {
+                let (mut plan, _, _, _) = plan();
+                plan.manifests[0].hosts.clear();
+                assert!(plan.plan_for("dave-desktop").is_none());
+            }
+
+            #[test]
+            fn works_with_no_matching_manifests() {
+                let (plan, _, _, _) = plan();
+                assert!(plan.plan_for("dave-desktop").is_none());
+            }
+
+            #[test]
+            fn works_with_some_non_matching_manifests() {
+                let (_, mut m1, _, _) = plan();
+                let mut m2 = m1.clone();
+                let mut m3 = m1.clone();
+
+                // m1 and m3 will match; m2 will not and should be skipped.
+                m1.hosts = vec!["dave-desktop".into()];
+                m2.hosts = vec!["tracy-laptop".into()];
+                m3.hosts = vec!["dave-desktop".into()];
+
+                // Name them uniquely so they compare differently with PartialEq.
+                m1.name = "m1".into();
+                m2.name = "m2".into();
+                m3.name = "m3".into();
+
+                let plan = Plan {
+                    manifests: vec![m1, m2, m3],
+                };
+
+                let expected = HostPlan {
+                    host: &plan.manifests[0].hosts[0],
+                    plan: &plan,
+                };
+                assert_eq!(Some(expected), plan.plan_for(&plan.manifests[0].hosts[0]));
             }
         }
     }
