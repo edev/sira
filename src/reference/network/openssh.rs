@@ -194,3 +194,77 @@ impl NetworkClientThread for ClientThread {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod new {
+        use super::*;
+
+        #[test]
+        fn works() {
+            use crate::executor;
+            use crossbeam::channel;
+
+            // Set up channels for communicating with a ClientThread.
+            let (report_send, report_recv) = channel::unbounded();
+            let (control_send, control_recv) = channel::unbounded();
+
+            // The caller's channels.
+            let caller: executor::ChannelPair<NetworkControlMessage, Report> =
+                executor::ChannelPair {
+                    sender: control_send,
+                    receiver: report_recv,
+                };
+
+            // The ClientThread's channels, stored here momentarily for clarity.
+            let client_thread_channels: executor::ChannelPair<Report, NetworkControlMessage> =
+                executor::ChannelPair {
+                    sender: report_send,
+                    receiver: control_recv,
+                };
+
+            let client_thread = ClientThread::new(
+                "archie".into(),
+                client_thread_channels.sender,
+                client_thread_channels.receiver,
+            );
+
+            assert_eq!("archie", client_thread.host);
+
+            // Verify that the channels are set up correctly. Since this is single-threaded code,
+            // there shouldn't be any race conditions over sending and receiving.
+
+            caller
+                .sender
+                .send(NetworkControlMessage::Disconnect("archie".to_string()))
+                .unwrap();
+            assert_eq!(
+                Ok(NetworkControlMessage::Disconnect("archie".to_string())),
+                client_thread.channels.receiver.try_recv(),
+            );
+
+            client_thread
+                .channels
+                .sender
+                .send(Report::Connecting("archie".into()))
+                .unwrap();
+            let msg = caller.receiver.try_recv();
+
+            // We can't simply use assert_eq! here, because Report can't implement PartialEq.
+            if let Ok(Report::Connecting(host)) = msg {
+                assert_eq!("archie", host);
+            } else {
+                panic!(
+                    "Expected Report::Connecting(\"archie\") but received {:?}",
+                    msg,
+                );
+            }
+        }
+    }
+
+    mod run {
+        use super::*;
+    }
+}

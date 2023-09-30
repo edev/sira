@@ -71,6 +71,7 @@ impl Executor {
 ///
 /// The [network] will commonly respond with one or more [network::Report] messages as it follows
 /// these instructions.
+#[derive(Clone, Debug, PartialEq)]
 pub enum NetworkControlMessage {
     /// Instructs the [network] to run an [Action] on a specific host.
     RunAction(Arc<HostAction>),
