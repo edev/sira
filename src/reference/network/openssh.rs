@@ -10,11 +10,13 @@ use crate::reference::network::ClientThread as NetworkClientThread;
 use crate::reference::network::Network;
 use anyhow::anyhow;
 use crossbeam::channel::{Receiver, Sender};
-use openssh::{KnownHosts, Session};
+use openssh::{self, KnownHosts};
+use std::process::Output;
 use std::sync::Arc;
 
 /// Data and code for running a single client thread via OpenSSH.
-struct ClientThread {
+#[derive(Debug)]
+pub struct ClientThread<S: Session = OpenSSHSession> {
     /// The host name that this thread is meant to manage.
     host: String,
 
@@ -23,10 +25,10 @@ struct ClientThread {
     channels: ChannelPair,
 
     /// The [Session] value representing an active SSH connection, if any.
-    session: Option<Session>,
+    session: Option<S>,
 }
 
-impl NetworkClientThread for ClientThread {
+impl<S: Session> NetworkClientThread for ClientThread<S> {
     fn new(
         host: String,
         sender: Sender<Report>,
@@ -41,13 +43,6 @@ impl NetworkClientThread for ClientThread {
     }
 
     fn run(mut self) {
-        // Tokio doesn't document when `build()` fails or why. For now, simply unwrap it; if errors
-        // crop up and need addressing, we'll revisit this code.
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
         while let Ok(message) = self.channels.receiver.recv() {
             use NetworkControlMessage::*;
             match message {
@@ -70,8 +65,7 @@ impl NetworkClientThread for ClientThread {
                             .unwrap();
 
                         // Block while attempting to connect.
-                        let session = runtime
-                            .block_on(Session::connect_mux(host_action.host(), KnownHosts::Add));
+                        let session = S::connect(host_action.host(), KnownHosts::Add);
 
                         match session {
                             Ok(session) => {
@@ -115,13 +109,8 @@ impl NetworkClientThread for ClientThread {
                     // Send the action to the host and collect the output.
                     use Action::*;
                     let output = match host_action.action() {
-                        Shell { .. } | LineInFile { .. } => runtime
-                            .block_on(
-                                session
-                                    .command("/home/edev/.cargo/bin/sira-client")
-                                    .arg("HostAction.to_yaml()")
-                                    .output(),
-                            )
+                        Shell { .. } | LineInFile { .. } => session
+                            .client_action("HostAction.to_yaml()")
                             .map_err(|e| anyhow!(e)),
 
                         // There's a lot missing from this implementation:
@@ -195,9 +184,182 @@ impl NetworkClientThread for ClientThread {
     }
 }
 
+/// An interface to a real or fake network client.
+///
+/// Used for dependency injection during testing. For production, use [OpenSSHSession].
+pub trait Session: Sized {
+    /// Opens a session to `destination`.
+    fn connect<D: AsRef<str>>(destination: D, check: KnownHosts) -> anyhow::Result<Self>;
+
+    /// Runs `sira-client` on the remote host, passing `action` as the first and only argument.
+    fn client_action<A: AsRef<str>>(&self, action: A) -> anyhow::Result<Output>;
+}
+
+/// An implementation of [Session] using the [openssh] crate. For production use.
+pub struct OpenSSHSession {
+    /// The Tokio runtime. We need this so we can run async tasks using [block_on].
+    ///
+    /// [block_on]: tokio::runtime::Runtime::block_on
+    runtime: tokio::runtime::Runtime,
+
+    /// The active session we're using to send client actions.
+    session: openssh::Session,
+}
+
+impl Session for OpenSSHSession {
+    fn connect<D: AsRef<str>>(destination: D, check: KnownHosts) -> anyhow::Result<Self> {
+        // Tokio doesn't document when `build()` fails or why. For now, simply unwrap it; if errors
+        // crop up and need addressing, we'll revisit this code.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let session = runtime.block_on(openssh::Session::connect_mux(destination, check));
+
+        match session {
+            Ok(session) => Ok(OpenSSHSession { runtime, session }),
+            Err(error) => Err(anyhow!(error)),
+        }
+    }
+
+    fn client_action<A: AsRef<str>>(&self, action: A) -> anyhow::Result<Output> {
+        self.runtime
+            .block_on(
+                self.session
+                    .command("/home/edev/.cargo/bin/sira-client")
+                    .arg("HostAction.to_yaml()")
+                    .output(),
+            )
+            .map_err(|e| anyhow!(e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::bail;
+    use std::ops::Deref;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+    use std::sync::Mutex;
+
+    /// Newtype for [KnownHosts] that supports PartialEq.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum TestKnownHosts {
+        Strict,
+        Add,
+        Accept,
+    }
+
+    impl From<KnownHosts> for TestKnownHosts {
+        fn from(value: KnownHosts) -> Self {
+            match value {
+                KnownHosts::Strict => TestKnownHosts::Strict,
+                KnownHosts::Add => TestKnownHosts::Add,
+                KnownHosts::Accept => TestKnownHosts::Accept,
+            }
+        }
+    }
+
+    /// A fake [Session] that returns failure when connecting.
+    ///
+    /// The implementation of [Session] for this type never instantiates this type, since its job is
+    /// to fail. However, if you wish to track [Session::connect] calls, you may do the following:
+    ///
+    /// 1. Define a static global for each individual test, e.g. a `Mutex<Vec<TestSessionFailure>>`.
+    ///
+    /// 2. Write a newtype for [TestSessionFailure] that implements [Session]. This wrapper should
+    ///    add [TestSessionFailure] values to your static global and then call
+    ///    [TestSessionFailure]'s implementations of [Session].
+    ///
+    /// 3. After running the code under test, inspect your global variable.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct TestSessionFailure {
+        /// The `destination` value passed to [Self::connect].
+        destination: String,
+
+        /// The `check` value passed to [Self::connect].
+        check: TestKnownHosts,
+    }
+
+    impl Session for TestSessionFailure {
+        /// Fails immediately.
+        fn connect<D: AsRef<str>>(destination: D, check: KnownHosts) -> anyhow::Result<Self> {
+            bail!("Could not connect");
+        }
+
+        /// Panics, as it should be impossible to call this from the code under test.
+        fn client_action<A: AsRef<str>>(&self, action: A) -> anyhow::Result<Output> {
+            panic!(
+                "You should not be calling client_action on TestSessionFailure. \
+                There should be no self."
+            );
+        }
+    }
+
+    /// A fake [Session] that returns success when connecting.
+    ///
+    /// If you wish to track [Session::connect] calls, you may do the following:
+    ///
+    /// 1. Define a static global for each individual test that will track [Session::connect] calls,
+    ///    e.g. a `Mutex<Vec<(String, TestKnownHosts)>`.
+    ///
+    /// 2. Define a newtype for [TestSessionSuccess] that implements [Session] and [Drop]:
+    ///
+    ///     * [Session::connect] should record its arguments to the static global and then call
+    ///     the underlying implementation.
+    ///
+    ///     * [Session::client_action] should simply wrap the underlying implementation.
+    ///
+    ///     * [Drop::drop] should assert that [TestSessionSuccess::actions] is set correctly.
+    ///
+    /// 3. After running the code under test, inspect your global variable.
+    #[derive(Debug)]
+    pub struct TestSessionSuccess {
+        /// The `destination` value passed to [Self::connect].
+        destination: String,
+
+        /// The `check` value passed to [Self::connect].
+        check: TestKnownHosts,
+
+        /// Records every action passed to a [Self::client_action] call, in order.
+        ///
+        /// Mutex is used for thread-safe interior mutability.
+        actions: Mutex<Vec<String>>,
+    }
+
+    impl PartialEq for TestSessionSuccess {
+        fn eq(&self, other: &Self) -> bool {
+            self.destination == other.destination
+                && self.check == other.check
+                && self.actions.lock().unwrap().deref() == other.actions.lock().unwrap().deref()
+        }
+    }
+
+    impl Session for Arc<TestSessionSuccess> {
+        /// Always suceeds.
+        fn connect<D: AsRef<str>>(destination: D, check: KnownHosts) -> anyhow::Result<Self> {
+            Ok(Arc::new(TestSessionSuccess {
+                destination: destination.as_ref().to_string(),
+                check: check.into(),
+                actions: Mutex::new(vec![]),
+            }))
+        }
+
+        /// Records the action and pretends that it succeeded, with a blank [Output] value.
+        fn client_action<A: AsRef<str>>(&self, action: A) -> anyhow::Result<Output> {
+            self.actions
+                .lock()
+                .unwrap()
+                .push(action.as_ref().to_string());
+            Ok(Output {
+                status: ExitStatus::from_raw(0),
+                stdout: vec![],
+                stderr: vec![],
+            })
+        }
+    }
 
     mod new {
         use super::*;
@@ -225,7 +387,7 @@ mod tests {
                     receiver: control_recv,
                 };
 
-            let client_thread = ClientThread::new(
+            let client_thread: ClientThread<OpenSSHSession> = ClientThread::new(
                 "archie".into(),
                 client_thread_channels.sender,
                 client_thread_channels.receiver,
@@ -264,7 +426,27 @@ mod tests {
         }
     }
 
+    /*
     mod run {
         use super::*;
+
+        mod run_action {
+            use super::*;
+
+            panics_if_wrong_host
+            mod with_no_session {
+                reports_connecting
+
+            }
+        }
+
+        mod disconnect {
+            use super::*;
+
+            terminates
+            panics_if_wrong_host
+            reports_disconnected
+        }
     }
+    */
 }
