@@ -109,7 +109,7 @@ impl TestableClientThread {
                     host_action.host(),
                 );
 
-                if session.connected() {
+                if !session.connected() {
                     // Report that we're trying to connect.
                     self.channels
                         .sender
@@ -551,7 +551,7 @@ mod tests {
             #[should_panic(expected = "HostAction meant for Zork")]
             fn panics_if_wrong_host() {
                 let (caller, mut client) = harness();
-                let (plan, mut manifest, task, action) = plan();
+                let (_, mut manifest, task, action) = plan();
 
                 const WRONG_HOST: &str = "Zork";
                 assert_ne!(WRONG_HOST, client.host);
@@ -579,7 +579,7 @@ mod tests {
                     caller: &executor::ChannelPair<NetworkControlMessage, Report>,
                     client: &mut TestableClientThread,
                 ) -> (TestSession, bool) {
-                    let (plan, mut manifest, task, action) = plan();
+                    let (_, manifest, task, action) = plan();
                     let message =
                         Arc::new(HostAction::new(&client.host, &manifest, &task, &action));
                     caller
@@ -607,17 +607,51 @@ mod tests {
 
                 #[test]
                 fn connects() {
-                    todo!()
+                    let (caller, mut client) = harness();
+
+                    let (session, retval) = connect(&caller, &mut client);
+                    assert!(retval);
+
+                    assert!(session.connected());
                 }
 
                 #[test]
-                fn reports_success() {
-                    todo!()
+                fn reports_connection_success() {
+                    let (caller, mut client) = harness();
+
+                    let (_, retval) = connect(&caller, &mut client);
+                    assert!(retval);
+
+                    let received_connecting_message = caller
+                        .receiver
+                        .try_iter()
+                        .any(|msg| matches!(msg, Report::Connected(_)));
+                    assert!(received_connecting_message);
                 }
 
                 #[test]
-                fn reports_failure_and_exits() {
-                    todo!()
+                fn reports_connection_failure_and_exits() {
+                    let (caller, mut client) = harness();
+
+                    // Modified from connect(): just this test should fail to connect.
+                    let (_, manifest, task, action) = plan();
+                    let message =
+                        Arc::new(HostAction::new(&client.host, &manifest, &task, &action));
+                    caller
+                        .sender
+                        .send(NetworkControlMessage::RunAction(message))
+                        .unwrap();
+
+                    let mut session = TestSession::new();
+                    session.connects = false;
+                    let retval = client._run_once(&mut session);
+                    assert!(!retval);
+
+                    let received_connecting_message = caller
+                        .receiver
+                        .try_iter()
+                        .any(|msg| matches!(msg, Report::FailedToConnect { .. }));
+                    assert!(received_connecting_message);
                 }
             }
         }
