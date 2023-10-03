@@ -15,7 +15,7 @@ use connections::Connections;
 #[cfg(feature = "openssh")]
 pub mod openssh;
 
-/// Implement this to define your own network provider.
+/// Creates and runs a thread to manage a single remote host.
 ///
 /// [ClientThread] values are meant to be moved into client threads and hold everything a client
 /// thread needs to know or do.

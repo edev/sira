@@ -80,7 +80,7 @@ impl HostAction {
     /// Panics if the values provided are not sane. For instance, `manifest` must specify that
     /// `task` run on `host`, and `task` must specify `action`. Violating these sanity checks would
     /// result in unwanted (though well-defined) behavior and is clearly a bug in the calling code.
-    pub(in crate::core) fn new<'plan>(
+    pub fn new<'plan>(
         host: &'plan str,
         manifest: &'plan Manifest,
         task: &'plan Task,
@@ -151,7 +151,7 @@ impl HostAction {
     /// Prepares an [Action] to be sent to a host for execution, e.g. performing variable
     /// substitution.
     #[allow(dead_code)]
-    pub(in crate::core) fn compile(&self) -> Action {
+    pub fn compile(&self) -> Action {
         todo!()
     }
 }

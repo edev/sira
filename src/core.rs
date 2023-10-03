@@ -31,7 +31,7 @@ pub mod fixtures {
         let task = Task {
             source: None,
             name: "API test".into(),
-            user: "edev".into(),
+            user: "archie".into(),
             actions: vec![action.clone()],
             vars: vec![],
         };
@@ -39,7 +39,7 @@ pub mod fixtures {
         let manifest = Manifest {
             source: None,
             name: "API test".into(),
-            hosts: vec!["zen3".into()],
+            hosts: vec!["archie-desktop".into()],
             include: vec![task.clone()],
             vars: vec![],
         };
