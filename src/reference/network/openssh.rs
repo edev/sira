@@ -93,7 +93,7 @@ impl TestableClientThread {
         // Block until we receive the next message, or return if the channel is empty and closed.
         let message = match self.channels.receiver.recv() {
             Ok(message) => message,
-            Err(e) => return false,
+            Err(_) => return false,
         };
 
         use NetworkControlMessage::*;
@@ -155,7 +155,7 @@ impl TestableClientThread {
                 // Send the action to the host and collect the output.
                 use Action::*;
                 let output = match host_action.compile() {
-                    action @ Shell { .. } | action @ LineInFile { .. } => session
+                    _action @ Shell { .. } | _action @ LineInFile { .. } => session
                         .client_action("action.to_yaml()")
                         .map_err(|e| anyhow!(e)),
 
@@ -201,9 +201,12 @@ impl TestableClientThread {
                         task_source: host_action.task().source.clone(),
                         task_name: host_action.task().name.to_string(),
                         action: Arc::new(host_action.action().clone()),
-                        result: output,
+                        result: output.map_err(|e| e.to_string()),
                     })
                     .unwrap();
+
+                // Request that the loop continue.
+                true
             }
             Disconnect(host) => {
                 // Panic if we receive a `HostAction` meant for someone else, as this indicates
@@ -221,10 +224,11 @@ impl TestableClientThread {
                         error: None,
                     })
                     .unwrap();
-                return false;
+
+                // Request that the loop terminate.
+                false
             }
         }
-        true
     }
 }
 
@@ -370,6 +374,7 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Debug, PartialEq)]
     enum TestAction {
         Connect(String),
         ClientAction(String),
@@ -546,6 +551,33 @@ mod tests {
 
         mod run_action {
             use super::*;
+            use crate::core::Manifest;
+            use std::ops::Deref;
+
+            fn run_action(
+                caller: &executor::ChannelPair<NetworkControlMessage, Report>,
+                client: &mut TestableClientThread,
+                action: &Action,
+            ) -> Manifest {
+                let (_, mut manifest, _, _) = plan();
+
+                // Replace the default manifest's one action with the action the calling code
+                // provided.
+                manifest.include[0].actions[0] = action.clone();
+
+                let message = Arc::new(HostAction::new(
+                    &client.host,
+                    &manifest,
+                    &manifest.include[0],
+                    &manifest.include[0].actions[0],
+                ));
+                caller
+                    .sender
+                    .send(NetworkControlMessage::RunAction(message))
+                    .unwrap();
+
+                manifest
+            }
 
             #[test]
             #[should_panic(expected = "HostAction meant for Zork")]
@@ -573,8 +605,8 @@ mod tests {
             mod when_not_connected {
                 use super::*;
 
-                /// Asks a client to connect. Passes through the return value of
-                /// [TestableClientThread::_run_once].
+                /// Asks a client to connect. Returns the [Session] value and the return value
+                /// of [TestableClientThread::_run_once].
                 fn connect(
                     caller: &executor::ChannelPair<NetworkControlMessage, Report>,
                     client: &mut TestableClientThread,
@@ -616,17 +648,27 @@ mod tests {
                 }
 
                 #[test]
-                fn reports_connection_success() {
+                fn reports_connection_success_and_continues() {
                     let (caller, mut client) = harness();
 
                     let (_, retval) = connect(&caller, &mut client);
+
+                    // Verify that the loop will continue.
                     assert!(retval);
 
-                    let received_connecting_message = caller
-                        .receiver
-                        .try_iter()
+                    let reports: Vec<_> = caller.receiver.try_iter().collect();
+
+                    // Verify that the method reported success.
+                    let received_connected_message = reports
+                        .iter()
                         .any(|msg| matches!(msg, Report::Connected(_)));
-                    assert!(received_connecting_message);
+                    assert!(received_connected_message);
+
+                    // Verify that the method continued on rather than returning early.
+                    let received_running_action_message = reports
+                        .iter()
+                        .any(|msg| matches!(msg, Report::RunningAction { .. }));
+                    assert!(received_running_action_message);
                 }
 
                 #[test]
@@ -645,23 +687,302 @@ mod tests {
                     let mut session = TestSession::new();
                     session.connects = false;
                     let retval = client._run_once(&mut session);
+
+                    // Verify that the loop will break.
                     assert!(!retval);
 
-                    let received_connecting_message = caller
-                        .receiver
-                        .try_iter()
+                    let reports: Vec<_> = caller.receiver.try_iter().collect();
+
+                    // Verify that the method reported failure.
+                    let received_failed_to_connect_message = reports
+                        .iter()
                         .any(|msg| matches!(msg, Report::FailedToConnect { .. }));
-                    assert!(received_connecting_message);
+                    assert!(received_failed_to_connect_message);
+
+                    // Verify that the method returned early rather than continuing on.
+                    let received_running_action_message = reports
+                        .iter()
+                        .any(|msg| matches!(msg, Report::RunningAction { .. }));
+                    assert!(!received_running_action_message);
                 }
+            }
+
+            #[test]
+            fn reports_running_action() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the action to the client.
+                let action = Action::Shell {
+                    commands: vec!["cat cats.txt".to_string()],
+                };
+                let manifest = run_action(&caller, &mut client, &action);
+
+                client._run_once(&mut session);
+
+                // As of this writing, we don't implement PartialEq on Report because it uses
+                // std::process::Output, which doesn't implement PartialEq. For this test, we
+                // manually compare the fields of the expected report.
+
+                // Find the report. There should be exactly 1.
+                let mut received_running_action_messages: Vec<_> = caller
+                    .receiver
+                    .try_iter()
+                    .filter(|msg| matches!(msg, Report::RunningAction { .. }))
+                    .collect();
+                assert_eq!(1, received_running_action_messages.len());
+                let message = received_running_action_messages.pop().unwrap();
+
+                // Assert each field.
+                match message {
+                    Report::RunningAction {
+                        host,
+                        manifest_source,
+                        manifest_name,
+                        task_source,
+                        task_name,
+                        action,
+                    } => {
+                        assert_eq!(client.host, host);
+                        assert_eq!(manifest.source, manifest_source);
+                        assert_eq!(manifest.name, manifest_name);
+                        assert_eq!(manifest.include[0].source, task_source);
+                        assert_eq!(manifest.include[0].name, task_name);
+                        assert_eq!(&manifest.include[0].actions[0], action.deref());
+                    }
+                    r => panic!(
+                        "Bug in test! Expected Report::RunningAction but received: {:?}",
+                        r
+                    ),
+                }
+            }
+
+            #[test]
+            fn shell_calls_client_action() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the action to the client.
+                let action = Action::Shell {
+                    commands: vec!["cat cats.txt".to_string()],
+                };
+                run_action(&caller, &mut client, &action);
+
+                client._run_once(&mut session);
+
+                assert_eq!(
+                    vec![
+                        TestAction::Connect(client.host.clone()),
+                        TestAction::ClientAction("action.to_yaml()".into()),
+                    ],
+                    session.actions,
+                );
+            }
+
+            #[test]
+            fn line_in_file_calls_client_action() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the action to the client.
+                let action = Action::LineInFile {
+                    after: "<after>".into(),
+                    insert: vec!["line_1".into(), "line_2".into()],
+                    path: "<path>".into(),
+                };
+                run_action(&caller, &mut client, &action);
+
+                client._run_once(&mut session);
+
+                assert_eq!(
+                    vec![
+                        TestAction::Connect(client.host.clone()),
+                        TestAction::ClientAction("action.to_yaml()".into()),
+                    ],
+                    session.actions,
+                );
+            }
+
+            #[test]
+            fn upload_calls_scp() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                const FROM: &str = "<from>";
+                const TO: &str = "<to>";
+
+                // Send the action to the client.
+                let action = Action::Upload {
+                    from: FROM.to_string(),
+                    to: TO.to_string(),
+                };
+                run_action(&caller, &mut client, &action);
+
+                client._run_once(&mut session);
+
+                assert_eq!(
+                    vec![
+                        TestAction::Connect(client.host.clone()),
+                        TestAction::Scp(FROM.to_string(), format!("{}:{}", client.host, TO)),
+                    ],
+                    session.actions,
+                );
+            }
+
+            #[test]
+            fn download_calls_scp() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                const FROM: &str = "<from>";
+                const TO: &str = "<to>";
+
+                // Send the action to the client.
+                let action = Action::Download {
+                    from: FROM.to_string(),
+                    to: TO.to_string(),
+                };
+                run_action(&caller, &mut client, &action);
+
+                client._run_once(&mut session);
+
+                assert_eq!(
+                    vec![
+                        TestAction::Connect(client.host.clone()),
+                        TestAction::Scp(format!("{}:{}", client.host, FROM), TO.to_string()),
+                    ],
+                    session.actions,
+                );
+            }
+
+            #[test]
+            fn reports_result() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the action to the client.
+                let action = Action::Download {
+                    from: "<from>".into(),
+                    to: "<to>".into(),
+                };
+                let manifest = run_action(&caller, &mut client, &action);
+
+                client._run_once(&mut session);
+
+                let mut results: Vec<_> = caller
+                    .receiver
+                    .try_iter()
+                    .filter(|report| matches!(report, Report::ActionResult { .. }))
+                    .collect();
+
+                assert_eq!(1, results.len());
+                match results.pop().unwrap() {
+                    Report::ActionResult {
+                        host,
+                        manifest_source,
+                        manifest_name,
+                        task_source,
+                        task_name,
+                        action,
+                        result,
+                    } => {
+                        assert_eq!(client.host, host);
+                        assert_eq!(manifest.source, manifest_source);
+                        assert_eq!(manifest.name, manifest_name);
+                        assert_eq!(manifest.include[0].source, task_source);
+                        assert_eq!(manifest.include[0].name, task_name);
+                        assert_eq!(action, action);
+                        assert_eq!(
+                            Ok(Output {
+                                status: ExitStatus::from_raw(0),
+                                stdout: vec![],
+                                stderr: vec![],
+                            }),
+                            result,
+                        );
+                    }
+                    other => panic!("Expected Report::ActionResult but received {:?}", other),
+                }
+            }
+
+            #[test]
+            fn continues() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the action to the client.
+                let action = Action::Download {
+                    from: "<from>".into(),
+                    to: "<to>".into(),
+                };
+                run_action(&caller, &mut client, &action);
+
+                let should_continue = client._run_once(&mut session);
+
+                assert!(should_continue);
             }
         }
 
         mod disconnect {
             use super::*;
 
-            // terminates
-            // panics_if_wrong_host
-            // reports_disconnected
+            #[test]
+            #[should_panic(expected = "Disconnect message meant for")]
+            fn panics_if_wrong_host() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Choose a wrong host.
+                let host = "Bad host".to_string();
+                assert_ne!(host, client.host);
+
+                // Send the Disconnect message to the client.
+                let message = NetworkControlMessage::Disconnect(host);
+                caller.sender.send(message).unwrap();
+
+                client._run_once(&mut session);
+            }
+
+            #[test]
+            fn reports_disconnected() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the Disconnect message to the client.
+                let message = NetworkControlMessage::Disconnect(client.host.clone());
+                caller.sender.send(message).unwrap();
+
+                client._run_once(&mut session);
+
+                let mut reports: Vec<_> = caller
+                    .receiver
+                    .try_iter()
+                    .filter(|msg| matches!(msg, Report::Disconnected { .. }))
+                    .collect();
+                assert_eq!(1, reports.len());
+
+                assert_eq!(
+                    Report::Disconnected {
+                        host: client.host.clone(),
+                        error: None,
+                    },
+                    reports.pop().unwrap(),
+                );
+            }
+
+            #[test]
+            fn terminates() {
+                let (caller, mut client) = harness();
+                let mut session = TestSession::new();
+
+                // Send the Disconnect message to the client.
+                let message = NetworkControlMessage::Disconnect(client.host.clone());
+                caller.sender.send(message).unwrap();
+
+                let should_continue = client._run_once(&mut session);
+
+                assert!(!should_continue);
+            }
         }
     }
 }

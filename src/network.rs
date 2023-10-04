@@ -27,7 +27,7 @@ use std::sync::Arc;
 pub type ChannelPair = executor::ChannelPair<Report, NetworkControlMessage>;
 
 /// Messages that a network module can send to [Executor].
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Report {
     /// The network module is about to try connecting to the specified host.
     Connecting(String),
@@ -79,7 +79,7 @@ pub enum Report {
         task_source: Option<String>,
         task_name: String,
         action: Arc<Action>,
-        result: anyhow::Result<Output>,
+        result: Result<Output, String>,
     },
 }
 
