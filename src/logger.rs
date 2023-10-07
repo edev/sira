@@ -61,6 +61,13 @@ pub struct Log {
 }
 
 impl Log {
+    /// For testing code that requires a Log, create a [Log] in isolation.
+    #[cfg(test)]
+    pub fn fixture() -> (Self, Receiver<String>) {
+        let (raw, receiver) = crossbeam::channel::unbounded();
+        (Log { raw }, receiver)
+    }
+
     /// Sends a raw, notice-level log message.
     #[allow(unused_variables)]
     pub fn notice(&self, message: String) {
