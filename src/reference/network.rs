@@ -295,7 +295,7 @@ impl<CT: ClientThread> Run<CT> for NetworkRun {
                 }
             } else {
                 panic!(
-                    "Network client thread closed its Receiver but appears to still be running. \
+                    "Network client thread closed its Receiver but still appears to be running. \
                     Please report this bug!"
                 );
             }
@@ -341,6 +341,7 @@ mod tests {
     use std::sync::Arc;
 
     /// An implementation of [ClientThread] that reports disconnection and exits.
+    #[allow(unused)]
     pub struct TestThread {
         host: String,
         sender: Sender<Report>,
@@ -409,10 +410,10 @@ mod tests {
     ///
     /// Returns an [executor::ChannelPair] representing [executor], a [Receiver] for log messages,
     /// a `Network<TestThread>`, and a [TestRun] to pass to `_run_once` (if you need it).
-    fn fixture() -> (
+    fn fixture<CT: ClientThread>() -> (
         executor::ChannelPair<NetworkControlMessage, Report>,
         Receiver<String>,
-        Network<TestThread>,
+        Network<CT>,
         TestRun,
     ) {
         // Generate fixtures for Run and Log.
@@ -434,7 +435,7 @@ mod tests {
             receiver: ncm_receive,
         };
 
-        let network: Network<TestThread> = Network::new(to_executor, log);
+        let network: Network<CT> = Network::new(to_executor, log);
 
         (executor, log_receiver, network, run)
     }
@@ -460,7 +461,7 @@ mod tests {
 
             #[test]
             fn stores_client_in_connections() {
-                let (_, _, mut network, _) = fixture();
+                let (_, _, mut network, _) = fixture::<TestThread>();
                 const HOST: &str = "with_the_most";
 
                 assert!(!network.connections.contains_key(HOST));
@@ -470,7 +471,7 @@ mod tests {
 
             #[test]
             fn spawns_new_client_thread() {
-                let (_, _, mut network, _) = fixture();
+                let (_, _, mut network, _) = fixture::<TestThread>();
                 const HOST: &str = "with_the_most";
 
                 let _ = network.client_for(HOST);
@@ -497,7 +498,7 @@ mod tests {
 
             #[test]
             fn returns_client() {
-                let (_, _, mut network, _) = fixture();
+                let (_, _, mut network, _) = fixture::<TestThread>();
                 const HOST: &str = "with_the_most";
 
                 let client = network.client_for(HOST);
@@ -530,7 +531,7 @@ mod tests {
             fn returns_client() {
                 // The same notes from with_new_host::returns_client apply here as well.
 
-                let (_, _, mut network, _) = fixture();
+                let (_, _, mut network, _) = fixture::<TestThread>();
                 const HOST: &str = "with_the_most";
 
                 let _ = network.client_for(HOST);
@@ -555,7 +556,7 @@ mod tests {
 
             #[test]
             fn prioritizes_inbox_over_executor() {
-                let (executor, _, mut network, mut run) = fixture();
+                let (executor, _, mut network, mut run) = fixture::<TestThread>();
                 let report = report();
                 let message = ncm_run_action();
 
@@ -575,7 +576,7 @@ mod tests {
 
             #[test]
             fn calls_disconnect_client_on_failed_to_connect() {
-                let (_, _, mut network, mut run) = fixture();
+                let (_, _, mut network, mut run) = fixture::<TestThread>();
                 const HOST: &str = "help_im_under_dressed";
                 const ERROR: &str = "didn't know it was a black-tie formal";
 
@@ -594,7 +595,7 @@ mod tests {
 
             #[test]
             fn calls_disconnect_client_on_disconnected() {
-                let (_, _, mut network, mut run) = fixture();
+                let (_, _, mut network, mut run) = fixture::<TestThread>();
                 const HOST: &str = "disconnect_me";
                 const ERROR: &str = "the server was too sunny";
 
@@ -613,7 +614,7 @@ mod tests {
 
             #[test]
             fn reports_to_executor_and_returns_true_ok() {
-                let (executor, _, mut network, mut run) = fixture();
+                let (executor, _, mut network, mut run) = fixture::<TestThread>();
                 let report = report();
 
                 network.client_outbox.send(report.clone()).unwrap();
@@ -630,7 +631,7 @@ mod tests {
 
             #[test]
             fn quits_without_error_if_executor_closed() {
-                let (executor, _, mut network, mut run) = fixture();
+                let (executor, _, mut network, mut run) = fixture::<TestThread>();
 
                 drop(executor.receiver);
                 network.client_outbox.send(report()).unwrap();
@@ -649,7 +650,7 @@ mod tests {
             #[test]
             #[should_panic(expected = "All network client Senders disconnected")]
             fn panics_if_inbox_closed() {
-                let (_, _, mut network, mut run) = fixture();
+                let (_, _, mut network, mut run) = fixture::<TestThread>();
 
                 // Swap out `network.client_outbox` and drop it. Should be impossible in
                 // production environments, as no code path should ever do this.
@@ -667,7 +668,7 @@ mod tests {
 
             #[test]
             fn calls_send() {
-                let (executor, _, mut network, mut run) = fixture();
+                let (executor, _, mut network, mut run) = fixture::<TestThread>();
 
                 let message = ncm_run_action();
                 executor.sender.send(message.clone()).unwrap();
@@ -680,7 +681,7 @@ mod tests {
 
             #[test]
             fn quits_without_error_if_executor_closed() {
-                let (executor, _, mut network, mut run) = fixture();
+                let (executor, _, mut network, mut run) = fixture::<TestThread>();
 
                 // Explicitly close executor.
                 drop(executor);
@@ -700,7 +701,7 @@ mod tests {
 
         #[test]
         fn returns_true_ok() {
-            let (_executor, _, mut network, mut run) = fixture();
+            let (_executor, _, mut network, mut run) = fixture::<TestThread>();
 
             let retval = network._run_once(&mut run);
 
@@ -709,6 +710,219 @@ mod tests {
                 "Expected (true, Ok(()) but got: {:?}",
                 retval,
             );
+        }
+    }
+
+    mod send {
+        use super::*;
+
+        #[test]
+        fn retrieves_client_with_correct_host() {
+            let (_, _, mut network, _) = fixture::<TestThread>();
+            let message = ncm_run_action();
+
+            NetworkRun().send(&mut network, message.clone());
+
+            // Unpack message so we can access host.
+            let host_action = match message {
+                NetworkControlMessage::RunAction(arc) => arc,
+                x => panic!("Expected RunAction message, but got: {:?}", x),
+            };
+
+            assert!(network.connections.contains_key(host_action.host()));
+        }
+
+        #[test]
+        fn sends_message_to_client() {
+            // Just for this test, a ClientThread that reports Connecting after it receives a
+            // message.
+            struct ReboundClientThread {
+                host: String,
+                channels: ChannelPair,
+            }
+
+            impl ClientThread for ReboundClientThread {
+                fn new(
+                    host: String,
+                    sender: Sender<Report>,
+                    receiver: Receiver<NetworkControlMessage>,
+                ) -> Self {
+                    let channels = ChannelPair { sender, receiver };
+                    Self { host, channels }
+                }
+
+                fn run(self) {
+                    self.channels.receiver.recv().unwrap();
+                    #[rustfmt::skip]
+                    self.channels.sender.send(Report::Connecting(self.host)).unwrap();
+                }
+            }
+
+            let (_, _, mut network, _) = fixture::<ReboundClientThread>();
+            let message = ncm_run_action();
+
+            // Run the code under test.
+            NetworkRun().send(&mut network, message.clone());
+
+            // Unpack message so we can access host.
+            let host_action = match message {
+                NetworkControlMessage::RunAction(arc) => arc,
+                x => panic!("Expected RunAction message, but got: {:?}", x),
+            };
+
+            // Join the client thread. We could instead block on Receiver::recv, but in the event
+            // of an error in the client thread code, this will provide better feedback.
+            network
+                .connections
+                .remove(host_action.host())
+                .unwrap()
+                .thread
+                .join()
+                .unwrap();
+
+            assert_eq!(
+                Report::Connecting(host_action.host().to_string()),
+                network.inbox.try_recv().unwrap(),
+            );
+        }
+
+        #[test]
+        #[should_panic(expected = "Network client thread exited mysteriously")]
+        fn panics_if_client_thread_exits_without_error() {
+            // Just for this test, a ClientThread that exits without sending a disconnection
+            // message first.
+            #[allow(unused)]
+            struct SilentExitThread {
+                host: String,
+                channels: ChannelPair,
+            }
+
+            impl ClientThread for SilentExitThread {
+                fn new(
+                    host: String,
+                    sender: Sender<Report>,
+                    receiver: Receiver<NetworkControlMessage>,
+                ) -> Self {
+                    let channels = ChannelPair { sender, receiver };
+                    Self { host, channels }
+                }
+
+                fn run(self) {}
+            }
+
+            let (_, _, mut network, _) = fixture::<SilentExitThread>();
+            let message = ncm_run_action();
+
+            // Unpack message so we can access host.
+            let host_action = match message.clone() {
+                NetworkControlMessage::RunAction(arc) => arc,
+                x => panic!("Expected RunAction message, but got: {:?}", x),
+            };
+
+            // Cause the new client thread to spawn, and wait for it to finish, without joining.
+            let client = network.client_for(host_action.host());
+            while !client.thread.is_finished() {}
+
+            // Run the code under test.
+            NetworkRun().send(&mut network, message);
+        }
+
+        #[test]
+        #[should_panic(expected = "at the disco")]
+        fn resumes_unwind_if_client_thread_panics() {
+            // Just for this test, a ClientThread that panics.
+            #[allow(unused)]
+            struct UhOhThread {
+                host: String,
+                channels: ChannelPair,
+            }
+
+            impl ClientThread for UhOhThread {
+                fn new(
+                    host: String,
+                    sender: Sender<Report>,
+                    receiver: Receiver<NetworkControlMessage>,
+                ) -> Self {
+                    let channels = ChannelPair { sender, receiver };
+                    Self { host, channels }
+                }
+
+                fn run(self) {
+                    panic!("at the disco");
+                }
+            }
+
+            let (_, _, mut network, _) = fixture::<UhOhThread>();
+            let message = ncm_run_action();
+
+            // Unpack message so we can access host.
+            let host_action = match message.clone() {
+                NetworkControlMessage::RunAction(arc) => arc,
+                x => panic!("Expected RunAction message, but got: {:?}", x),
+            };
+
+            // Cause the new client thread to spawn, and wait for it to finish, without joining.
+            let client = network.client_for(host_action.host());
+            while !client.thread.is_finished() {}
+
+            // Run the code under test.
+            NetworkRun().send(&mut network, message);
+        }
+
+        #[test]
+        #[should_panic(expected = "closed its Receiver but still appears to be running")]
+        fn panics_if_client_thread_disconnects_while_running() {
+            // Just for this test, a ClientThread that closes its Receiver and then sleeps.
+            struct UhOhThread {
+                host: String,
+                channels: ChannelPair,
+            }
+
+            impl ClientThread for UhOhThread {
+                fn new(
+                    host: String,
+                    sender: Sender<Report>,
+                    receiver: Receiver<NetworkControlMessage>,
+                ) -> Self {
+                    let channels = ChannelPair { sender, receiver };
+                    Self { host, channels }
+                }
+
+                fn run(self) {
+                    drop(self.channels.receiver);
+
+                    // This message is used as a synchronization mechanism. The test will block
+                    // until it receives this, thereby ensuring that the receiver has been dropped.
+                    // Then it will run the code under test.
+                    self.channels
+                        .sender
+                        .send(Report::Connecting(self.host))
+                        .unwrap();
+
+                    // How to keep the thread alive is a slightly tricky question. Sleeping once
+                    // guarantees termination but sets up a race condition. Using a sleep-forever
+                    // loop inverts these tradeoffs. Either way, the test harness shouldn't wait
+                    // for this thread to join, as it doesn't have the handle.
+                    thread::sleep(std::time::Duration::from_secs(10));
+                }
+            }
+
+            let (_, _, mut network, _) = fixture::<UhOhThread>();
+            let message = ncm_run_action();
+
+            // Unpack message so we can access host.
+            let host_action = match message.clone() {
+                NetworkControlMessage::RunAction(arc) => arc,
+                x => panic!("Expected RunAction message, but got: {:?}", x),
+            };
+
+            // Cause the new client thread to spawn, and wait for it to send its synchronization
+            // message.
+            let _ = network.client_for(host_action.host());
+            let _ = network.inbox.recv().unwrap();
+
+            // Run the code under test.
+            NetworkRun().send(&mut network, message);
         }
     }
 }
