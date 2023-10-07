@@ -205,7 +205,7 @@ impl<CT: ClientThread> Network<CT> {
 
     /// Returns the [Sender] for sending a [NetworkControlMessage] to the thread for `host`.
     ///
-    /// If no such thread exist, creates the thread and the corresponding mapping in
+    /// If no such thread exists, creates the thread and the corresponding mapping in
     /// [Self::connections].
     ///
     /// Used by [NetworkRun::send].
@@ -247,10 +247,17 @@ impl<CT: ClientThread> Network<CT> {
 /// this trait on a different type and take a [Network] as an argument, giving us just one mutable
 /// reference to [Network] and the implementer's `self`.
 trait Run<CT: ClientThread> {
+    /// Sends a [NetworkControlMessage] to a client thread.
+    ///
+    /// If no thread exists for the specified host, spawns a new one and delivers the message.
     fn send(&mut self, network: &mut Network<CT>, message: NetworkControlMessage);
 
-    // We use generics for `error` because the calling code can most easily and efficiently
-    // generate one `&Option<String>` and one `&Option(&String)`.
+    /// Handles a client that has sent a disconnection message.
+    ///
+    /// # Design notes
+    ///
+    /// We use generics for `error` because the calling code can most easily and efficiently
+    /// generate one `&Option<String>` and one `&Option<&String>`.
     fn disconnect_client<S: ToString>(
         &mut self,
         network: &mut Network<CT>,
@@ -259,12 +266,10 @@ trait Run<CT: ClientThread> {
     );
 }
 
+/// Implements [Run] for production use.
 struct NetworkRun();
 
 impl<CT: ClientThread> Run<CT> for NetworkRun {
-    /// Sends a [NetworkControlMessage] to a client thread.
-    ///
-    /// If no thread exists for the specified host, spawns a new one and delivers the message.
     fn send(&mut self, network: &mut Network<CT>, message: NetworkControlMessage) {
         use NetworkControlMessage::*;
         let host = match &message {
@@ -284,7 +289,6 @@ impl<CT: ClientThread> Run<CT> for NetworkRun {
                 let result = client.thread.join();
                 match result {
                     Ok(_) => {
-                        // TODO Add log entries anywhere we panic, so there's a trail in the log.
                         panic!("Network client thread exited mysteriously. Please report this bug!")
                     }
                     Err(err) => std::panic::resume_unwind(err),
@@ -298,7 +302,6 @@ impl<CT: ClientThread> Run<CT> for NetworkRun {
         }
     }
 
-    /// Handles a client that has sent a disconnection message.
     fn disconnect_client<S: ToString>(
         &mut self,
         network: &mut Network<CT>,
@@ -336,6 +339,7 @@ mod tests {
     use crate::executor;
     use std::sync::Arc;
 
+    /// An implementation of [ClientThread] that does nothing.
     pub struct TestThread {
         host: String,
         sender: Sender<Report>,
@@ -359,11 +363,15 @@ mod tests {
     }
     /// Fake implementation of [Run] that simply logs calls.
     struct TestRun {
+        /// Stores any [NetworkControlMessage]s from [Self::send].
         messages: Vec<NetworkControlMessage>,
+
+        /// Stores the arguments of any calls to [Self::disconnect_client].
         disconnections: Vec<(String, Option<String>)>,
     }
 
     impl TestRun {
+        /// Returns an empty [TestRun].
         fn new() -> Self {
             TestRun {
                 messages: vec![],
@@ -423,13 +431,17 @@ mod tests {
         (executor, log_receiver, network, run)
     }
 
-    /// Returns a [NetworkControlMessage::RunAction] with a minimum of fuss.
-    ///
-    /// You don't get to choose the action.
+    /// Returns a [NetworkControlMessage::RunAction].
     fn ncm_run_action() -> NetworkControlMessage {
         let (_, manifest, task, action) = plan();
         let host_action = HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
         NetworkControlMessage::RunAction(Arc::new(host_action))
+    }
+
+    /// Generates a simple, innocuous [Report] that can safely be sent without triggering
+    /// side effects.
+    fn report() -> Report {
+        Report::Connecting("fake_host".into())
     }
 
     mod _run_once {
@@ -437,12 +449,6 @@ mod tests {
 
         mod with_inbox_message {
             use super::*;
-
-            /// Generates a simple, innocuous [Report] that can safely be sent without triggering
-            /// side effects.
-            fn report() -> Report {
-                Report::Connecting("fake_host".into())
-            }
 
             #[test]
             fn prioritizes_inbox_over_executor() {
