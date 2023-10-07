@@ -203,7 +203,7 @@ impl<CT: ClientThread> Network<CT> {
         (true, Ok(()))
     }
 
-    /// Returns the [Sender] for sending a [NetworkControlMessage] to the thread for `host`.
+    /// Returns the [Client] that represents the thread for `host`.
     ///
     /// If no such thread exists, creates the thread and the corresponding mapping in
     /// [Self::connections].
@@ -337,9 +337,10 @@ mod tests {
     use crate::core::action::HostAction;
     use crate::core::fixtures::plan;
     use crate::executor;
+    use crossbeam::channel::TrySendError;
     use std::sync::Arc;
 
-    /// An implementation of [ClientThread] that does nothing.
+    /// An implementation of [ClientThread] that reports disconnection and exits.
     pub struct TestThread {
         host: String,
         sender: Sender<Report>,
@@ -359,7 +360,14 @@ mod tests {
             }
         }
 
-        fn run(self) {}
+        fn run(self) {
+            self.sender
+                .send(Report::Disconnected {
+                    host: self.host,
+                    error: None,
+                })
+                .unwrap();
+        }
     }
     /// Fake implementation of [Run] that simply logs calls.
     struct TestRun {
@@ -442,6 +450,101 @@ mod tests {
     /// side effects.
     fn report() -> Report {
         Report::Connecting("fake_host".into())
+    }
+
+    mod client_for {
+        use super::*;
+
+        mod with_new_host {
+            use super::*;
+
+            #[test]
+            fn stores_client_in_connections() {
+                let (_, _, mut network, _) = fixture();
+                const HOST: &str = "with_the_most";
+
+                assert!(!network.connections.contains_key(HOST));
+                let _ = network.client_for(HOST);
+                assert!(network.connections.contains_key(HOST));
+            }
+
+            #[test]
+            fn spawns_new_client_thread() {
+                let (_, _, mut network, _) = fixture();
+                const HOST: &str = "with_the_most";
+
+                let _ = network.client_for(HOST);
+
+                // Join the thread, which is slightly clumsy in this off-label use.
+                network
+                    .connections
+                    .remove(HOST)
+                    .unwrap()
+                    .thread
+                    .join()
+                    .unwrap();
+
+                // Verify that the thread actually ran by checking the side effect we installed for
+                // this purpose: it immediately sends a Disconnected message before exiting.
+                assert_eq!(
+                    network.inbox.try_recv().unwrap(),
+                    Report::Disconnected {
+                        host: HOST.into(),
+                        error: None,
+                    }
+                );
+            }
+
+            #[test]
+            fn returns_client() {
+                let (_, _, mut network, _) = fixture();
+                const HOST: &str = "with_the_most";
+
+                let client = network.client_for(HOST);
+
+                // I'm not aware of a good way to verify that the JoinHandle is for the correct
+                // thread. The code under test would have to do something pretty far off script to
+                // manage to return the wrong one, but if it does, then this test might hang.
+
+                // Clone the client outbox so we can drop the reference we were given while still
+                // holding onto the one, verifiable datum.
+                let outbox = client.outbox.clone();
+
+                // Retrieve in the real Client value so we can consume its JoinHandle.
+                let client = network.connections.remove(HOST).unwrap();
+
+                // Once the thread is done, verify that the outbox has no Receivers left. This is
+                // the best and only way I know of to verify that the Client value was correct.
+                assert!(matches!(client.thread.join(), Ok(())));
+                assert!(matches!(
+                    outbox.try_send(NetworkControlMessage::Disconnect(HOST.into())),
+                    Err(TrySendError::Disconnected(_)),
+                ));
+            }
+        }
+
+        mod with_existing_host {
+            use super::*;
+
+            #[test]
+            fn returns_client() {
+                // The same notes from with_new_host::returns_client apply here as well.
+
+                let (_, _, mut network, _) = fixture();
+                const HOST: &str = "with_the_most";
+
+                let _ = network.client_for(HOST);
+                let existing = network.client_for(HOST);
+                let outbox = existing.outbox.clone();
+
+                let client = network.connections.remove(HOST).unwrap();
+                assert!(matches!(client.thread.join(), Ok(())));
+                assert!(matches!(
+                    outbox.try_send(NetworkControlMessage::Disconnect(HOST.into())),
+                    Err(TrySendError::Disconnected(_)),
+                ));
+            }
+        }
     }
 
     mod _run_once {
