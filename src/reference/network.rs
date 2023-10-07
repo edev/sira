@@ -309,22 +309,34 @@ impl<CT: ClientThread> Run<CT> for NetworkRun {
         error: &Option<S>,
     ) {
         // Remove the client from connections.
-        let client = network.connections.remove(host).unwrap();
+        let client = network.connections.remove(host).unwrap_or_else(|| {
+            panic!(
+                "Tried to disconnect host \"{}\" but couldn't find it.",
+                host,
+            );
+        });
 
         // Join the thread. This will block until the client has exited, which it should promptly
         // do after it sends a disconnection message of any kind.
         let result = client.thread.join();
 
-        // Log the precise disconnection, since we don't [Report] it.
+        // Whether to propagate a client thread's panic in this method is a judgement call. We
+        // propagate it in NetworkRun::send, but we don't propagate it here, and that's intentional.
+        // The rationale for logging and continuing in this case is that the client thread
+        // is in the process of closing anyway. An error after disconnecting from the client should
+        // be harmless, at least insofar as it cannot, on its own, corrupt the state of a remote
+        // host or the execution of the current Sira run.
+
+        // Log the disconnection, including the client thread's result, since we don't [Report] it.
         match error {
             Some(error) => network.log.error(format!(
-                "Client thread for {} exited with result {:?} and reported error {}",
+                "Client thread for host \"{}\" exited with result {:?} and reported error: {}",
                 host,
                 result,
                 error.to_string(),
             )),
             None => network.log.notice(format!(
-                "Client thread for {} exited with result {:?}",
+                "Client thread for host \"{}\" exited with result {:?}",
                 host, result,
             )),
         }
@@ -545,6 +557,77 @@ mod tests {
                     Err(TrySendError::Disconnected(_)),
                 ));
             }
+        }
+    }
+
+    mod disconnect_client {
+        use super::*;
+
+        #[test]
+        fn removes_client_from_connections() {
+            let (_, _log_receiver, mut network, _) = fixture::<TestThread>();
+            const HOST: &str = "disconnect_client";
+
+            // Populate the client entry in connections.
+            let _ = network.client_for(HOST);
+
+            assert!(network.connections.contains_key(HOST));
+            NetworkRun().disconnect_client::<String>(&mut network, HOST, &None);
+            assert!(!network.connections.contains_key(HOST));
+        }
+
+        #[test]
+        #[should_panic(expected = "Tried to disconnect host")]
+        fn panics_if_host_not_in_connections() {
+            let (_, _log_receiver, mut network, _) = fixture::<TestThread>();
+            const HOST: &str = "disconnect_client";
+
+            assert!(!network.connections.contains_key(HOST));
+            NetworkRun().disconnect_client::<String>(&mut network, HOST, &None);
+        }
+
+        // I am not aware of a way to verify that the code under test joins the client thread.
+
+        #[test]
+        fn logs_thread_result_with_error() {
+            let (_, log_receiver, mut network, _) = fixture::<TestThread>();
+            const HOST: &str = "disconnect_client";
+
+            // Populate the client entry in connections.
+            let _ = network.client_for(HOST);
+
+            NetworkRun().disconnect_client::<String>(&mut network, HOST, &Some("erroneous".into()));
+
+            let logged_message = log_receiver.try_recv().unwrap();
+            assert!(
+                logged_message.starts_with("ERROR: Client thread for host \"disconnect_client\""),
+                "Could not find expected starting substring in: {logged_message}",
+            );
+            assert!(
+                logged_message.ends_with("reported error: erroneous"),
+                "Could not find expected ending substring in: {logged_message}",
+            );
+        }
+
+        #[test]
+        fn logs_thread_result_without_error() {
+            let (_, log_receiver, mut network, _) = fixture::<TestThread>();
+            const HOST: &str = "disconnect_client";
+
+            // Populate the client entry in connections.
+            let _ = network.client_for(HOST);
+
+            NetworkRun().disconnect_client::<String>(&mut network, HOST, &None);
+
+            let logged_message = log_receiver.try_recv().unwrap();
+            assert!(
+                logged_message.starts_with("NOTICE: Client thread for host \"disconnect_client\""),
+                "Could not find expected starting substring in: {logged_message}",
+            );
+            assert!(
+                logged_message.ends_with("result Ok(())"),
+                "Could not find expected ending substring in: {logged_message}",
+            );
         }
     }
 
