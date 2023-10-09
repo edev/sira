@@ -8,7 +8,7 @@
 //! within its own scope. The logger may arrange itself in any fashion; the user interface may be
 //! simple or complex, textual or graphical, etc.; the "network connection" may be SSH
 //! (the default), something else, or even some arbitrary non-networked method of connecting to
-//! instances of `sira-client`.
+//! managed nodes.
 //!
 //! # Modularity
 //!
