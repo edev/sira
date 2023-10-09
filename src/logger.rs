@@ -5,6 +5,7 @@
 #[cfg(doc)]
 use crate::executor::Executor;
 use crate::executor::Report;
+use crate::network;
 use crossbeam::channel::{self, Receiver, Sender};
 
 /// A logger for use only in [Executor] that can log [Report]s as well as bare messages.
@@ -17,33 +18,71 @@ pub struct ExecutiveLog {
 }
 
 impl ExecutiveLog {
+    // Returns an ExecutiveLog and the raw Receivers paired with the ExecutiveLog's Senders.
+    //
+    // This is for use by Executor's tests, so they don't need to inspect the internal states of
+    // types in this module that really aren't Executor's concern.
+    #[cfg(test)]
+    pub fn fixture() -> (
+        ExecutiveLog,
+        Receiver<LogEntry<Report>>,
+        Receiver<LogEntry<String>>,
+    ) {
+        let (reporter, report_recv) = channel::unbounded();
+        let (raw, raw_recv) = channel::unbounded();
+        let raw = Log { raw };
+
+        let executive_log = ExecutiveLog { reporter, raw };
+
+        (executive_log, report_recv, raw_recv)
+    }
+
     /// Logs a [Report] messaage. Automatically classifies it as some [LogEntry] variant based on
     /// message type and contents.
-    #[allow(unused_variables)]
-    pub fn report(&self, _report: Report) {
-        todo!();
+    pub fn report(&self, report: Report) {
+        // TODO Test me.
+        use network::Report::*;
+        use LogEntry::*;
+
+        match report {
+            Report::Done => self.reporter.send(Notice(report)).unwrap(),
+            Report::NetworkReport(ref network_report) => match network_report {
+                // network::Report implements Display, but we need to classify report before we can
+                // stringify and dispatch it.
+                FailedToConnect { .. } | Disconnected { .. } => {
+                    self.reporter.send(Error(report)).unwrap();
+                }
+                ActionResult { ref result, .. } => {
+                    if result.is_err() {
+                        self.reporter.send(Error(report)).unwrap();
+                    } else if result.as_ref().unwrap().status.success() {
+                        self.reporter.send(Notice(report)).unwrap();
+                    } else {
+                        // We have a Result::Ok(Output), but Output indicates an error.
+                        self.reporter.send(Error(report)).unwrap();
+                    }
+                }
+                _ => self.reporter.send(Notice(report)).unwrap(),
+            },
+        }
     }
 
     /// Wraps [Log::notice()].
-    #[allow(unused_variables)]
     pub fn notice(&self, message: String) {
         self.raw.notice(message);
     }
 
     /// Wraps [Log::warning()].
-    #[allow(unused_variables)]
     pub fn warning(&self, message: String) {
         self.raw.warning(message);
     }
 
     /// Wraps [Log::error()].
-    #[allow(unused_variables)]
     pub fn error(&self, message: String) {
         self.raw.error(message);
     }
 
     /// Wraps [Log::fatal()].
-    #[allow(unused_variables)]
     pub fn fatal(&self, message: String) {
         self.raw.fatal(message);
     }
@@ -94,6 +133,7 @@ impl Log {
 }
 
 /// Severity classifications for log entries.
+#[derive(Debug)]
 pub enum LogEntry<E> {
     /// Just a status update; nothing's wrong.
     Notice(E),
