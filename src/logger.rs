@@ -5,7 +5,7 @@
 #[cfg(doc)]
 use crate::executor::Executor;
 use crate::executor::Report;
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::{self, Receiver, Sender};
 
 /// A logger for use only in [Executor] that can log [Report]s as well as bare messages.
 ///
@@ -57,13 +57,13 @@ impl ExecutiveLog {
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Log {
-    raw: Sender<String>,
+    raw: Sender<LogEntry<String>>,
 }
 
 impl Log {
     /// For testing code that requires a Log, create a [Log] in isolation.
     #[cfg(test)]
-    pub fn fixture() -> (Self, Receiver<String>) {
+    pub fn fixture() -> (Self, Receiver<LogEntry<String>>) {
         let (raw, receiver) = crossbeam::channel::unbounded();
         (Log { raw }, receiver)
     }
@@ -71,7 +71,7 @@ impl Log {
     /// Sends a raw, notice-level log message.
     #[allow(unused_variables)]
     pub fn notice(&self, message: String) {
-        todo!();
+        self.raw.send(LogEntry::Notice(message)).unwrap();
     }
 
     /// Sends a raw, warning-level log message.
@@ -83,7 +83,7 @@ impl Log {
     /// Sends a raw, error-level log message.
     #[allow(unused_variables)]
     pub fn error(&self, message: String) {
-        todo!();
+        self.raw.send(LogEntry::Error(message)).unwrap();
     }
 
     /// Sends a raw, fatal-level log message.
@@ -109,6 +109,19 @@ pub enum LogEntry<E> {
     /// If the user needs to troubleshoot by viewing the log, they are probably looking for this
     /// message at or near the end of the log.
     Fatal(E),
+}
+
+impl<E> LogEntry<E> {
+    /// Returns the message inside the [LogEntry].
+    pub fn message(&self) -> &E {
+        use LogEntry::*;
+        match self {
+            Notice(e) => e,
+            Warning(e) => e,
+            Error(e) => e,
+            Fatal(e) => e,
+        }
+    }
 }
 
 /// An interface to a physical logging mechanism, e.g. a disk logger.
@@ -147,7 +160,24 @@ pub struct LogReceiver<L: Logger> {
 impl<L: Logger> LogReceiver<L> {
     #[allow(unused_variables)]
     pub fn new(logger: L) -> (Self, Log, ExecutiveLog) {
-        todo!()
+        // Construct the base channels we need
+        let (reporter, report_recv) = channel::unbounded();
+        let (raw, raw_recv) = channel::unbounded();
+
+        let raw = Log { raw };
+
+        let executive_log = ExecutiveLog {
+            reporter,
+            raw: raw.clone(),
+        };
+
+        let receiver = LogReceiver {
+            reporter: report_recv,
+            raw: raw_recv,
+            logger,
+        };
+
+        (receiver, raw, executive_log)
     }
 
     pub fn run(self) {

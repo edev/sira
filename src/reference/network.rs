@@ -349,6 +349,7 @@ mod tests {
     use crate::core::action::HostAction;
     use crate::core::fixtures::plan;
     use crate::executor;
+    use crate::logger::LogEntry;
     use crossbeam::channel::TrySendError;
     use std::sync::Arc;
 
@@ -424,7 +425,7 @@ mod tests {
     /// a `Network<TestThread>`, and a [TestRun] to pass to `_run_once` (if you need it).
     fn fixture<CT: ClientThread>() -> (
         executor::ChannelPair<NetworkControlMessage, Report>,
-        Receiver<String>,
+        Receiver<LogEntry<String>>,
         Network<CT>,
         TestRun,
     ) {
@@ -599,13 +600,20 @@ mod tests {
             NetworkRun().disconnect_client::<String>(&mut network, HOST, &Some("erroneous".into()));
 
             let logged_message = log_receiver.try_recv().unwrap();
+            assert!(matches!(logged_message, LogEntry::Error(_)));
             assert!(
-                logged_message.starts_with("ERROR: Client thread for host \"disconnect_client\""),
-                "Could not find expected starting substring in: {logged_message}",
+                logged_message
+                    .message()
+                    .starts_with("Client thread for host \"disconnect_client\""),
+                "Could not find expected starting substring in: {}",
+                logged_message.message()
             );
             assert!(
-                logged_message.ends_with("reported error: erroneous"),
-                "Could not find expected ending substring in: {logged_message}",
+                logged_message
+                    .message()
+                    .ends_with("reported error: erroneous"),
+                "Could not find expected ending substring in: {}",
+                logged_message.message()
             );
         }
 
@@ -620,13 +628,18 @@ mod tests {
             NetworkRun().disconnect_client::<String>(&mut network, HOST, &None);
 
             let logged_message = log_receiver.try_recv().unwrap();
+            assert!(matches!(logged_message, LogEntry::Notice(_)));
             assert!(
-                logged_message.starts_with("NOTICE: Client thread for host \"disconnect_client\""),
-                "Could not find expected starting substring in: {logged_message}",
+                logged_message
+                    .message()
+                    .starts_with("Client thread for host \"disconnect_client\""),
+                "Could not find expected starting substring in: {}",
+                logged_message.message()
             );
             assert!(
-                logged_message.ends_with("result Ok(())"),
-                "Could not find expected ending substring in: {logged_message}",
+                logged_message.message().ends_with("result Ok(())"),
+                "Could not find expected ending substring in: {}",
+                logged_message.message()
             );
         }
     }
