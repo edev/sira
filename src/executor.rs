@@ -21,14 +21,14 @@
 #[cfg(doc)]
 use crate::core::action::Action;
 use crate::core::action::HostAction;
-use crate::core::plan::Plan;
+use crate::core::plan::{HostPlanIntoIter, Plan};
 #[cfg(doc)]
 use crate::logger;
 use crate::logger::ExecutiveLog;
 use crate::network;
 use crate::ui;
-use crossbeam::channel::{self, Receiver, Sender};
-use std::collections::VecDeque;
+use crossbeam::channel::{self, Receiver, Sender, TryRecvError};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 /// Coordinates message routing, plan execution, and program flow.
@@ -49,10 +49,6 @@ pub struct Executor {
     /// [Executor] tells the [network] to run actions on nodes, and the network [network::Report]s
     /// its progress.
     network: ChannelPair<NetworkControlMessage, network::Report>,
-
-    /// Queue of [Plan]s to run. The currently running [Plan] is not in this queue: it has been
-    /// dequeued for consumption.
-    plans: VecDeque<Plan>,
 }
 
 /// A pair of channel ends for passing messages to and from another part of the program.
@@ -100,7 +96,6 @@ impl Executor {
             ui,
             logger,
             network,
-            plans: VecDeque::new(),
         };
 
         (executor, to_ui, to_network)
@@ -111,11 +106,137 @@ impl Executor {
     /// Blocks until the program is getting ready to exit. You will probably wish to do something
     /// like spawn a thread to run this method.
     #[allow(clippy::result_unit_err)]
-    pub fn run(self) -> Result<(), ()> {
+    pub fn run(mut self) {
+        let mut host_plans = HashMap::new();
         loop {
-            // TODO Select among receivers and respond accordingly.
-            todo!()
+            while self._run_once(&mut host_plans) {}
         }
+    }
+
+    /// A single iteration of the [Self::run] loop, broken out for better testing.
+    ///
+    /// Specifically, this method allows for step-by-step evaluation and guarantees termination.
+    ///
+    /// # host_plans
+    ///
+    /// For efficiency, we use a slightly complex data structure to store work. `host_plans` maps
+    /// hosts to queues of [HostPlanIntoIter] values. This data structure allows us to keep all
+    /// hosts busy rather than hitting blocks periodically when running multiple [Plan]s.
+    ///
+    /// If we were to go through one [Plan] completely before proceeding with the next, then the
+    /// slowest host to run the [Plan] would block the rest.
+    ///
+    /// Instead, when we receive a [Plan], we can generate all applicable [HostPlanIntoIter] values
+    /// and enqueue them for processing.
+    ///
+    /// # Returns
+    ///
+    /// Returns whether to continue looping.
+    fn _run_once(&mut self, host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>) -> bool {
+        // For a detailed discussion of how this kind of event loop is designed, see
+        // crate::reference::network::Network::_run_once.
+
+        // Prioritize messages from the UI, since they represent the user's intent.
+        match self.ui.receiver.try_recv() {
+            Ok(ui::Message::RunPlan(plan)) => {
+                // For each host in the Plan, either enqueue the Plan or, if it's a new host, start
+                // a new queue and run the first HostAction.
+                for host in plan.hosts() {
+                    use std::collections::hash_map::Entry::*;
+                    match host_plans.entry(host.clone()) {
+                        Occupied(mut entry) => {
+                            // Existing. Simply enqueue. The host is already busy.
+                            //
+                            // If unwrap panics, then there's a bug somewhere in crate::core,
+                            // because plan.hosts() returned a list that included this host.
+                            let iter = plan.plan_for(&host).unwrap().into_iter();
+                            entry.get_mut().push_back(iter);
+                        }
+                        Vacant(entry) => {
+                            // New host. Send out the first HostAction, and then enqueue the
+                            // iterator for future use.
+                            //
+                            // If unwrap panics, then there's a bug somewhere in crate::core,
+                            // because plan.hosts() returned a list that included this host.
+                            let mut iter = plan.plan_for(&host).unwrap().into_iter();
+
+                            // If there isn't at least one HostAction in the iterator, then there's
+                            // a bug somewhere in crate::core, because plan.hosts() returned a list
+                            // that included this host.
+                            let host_action = iter.next().unwrap();
+
+                            // Inform the network so it can contact the host. If the channel to the
+                            // network is closed, the program is crashing, so we need to panic.
+                            let message = NetworkControlMessage::RunAction(host_action);
+                            self.network.sender.send(message).unwrap();
+
+                            // Enqueue the iterator.
+                            let mut queue = VecDeque::new();
+                            queue.push_back(iter);
+                            entry.insert(queue);
+                        }
+                    }
+                }
+                return true;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                // The UI has closed or crashed. This means we exit. Whether we exit with success
+                // or failure depends on whether we were idle.
+            }
+        }
+
+        use network::Report::*;
+        // If there are no messages from the UI, then check for reports from the network.
+        match self.network.receiver.try_recv() {
+            Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
+                // This is just a status update. No actions needed; just inform everyone.
+                todo!()
+            }
+            Ok(FailedToConnect { host, error }) => {
+                // Error state.
+                todo!()
+            }
+            Ok(Disconnected {
+                host,
+                error: Some(error),
+            }) => {
+                // Error state.
+                todo!()
+            }
+            Ok(Disconnected { host, error: None }) => {
+                // If the host should have been working, then this is an error state. If this is
+                // expected, then it's not.
+                todo!()
+            }
+            Ok(ActionResult {
+                host,
+                manifest_source,
+                manifest_name,
+                task_source,
+                task_name,
+                action,
+                result,
+            }) => {
+                if result.is_err() {
+                    // Error state.
+                    todo!()
+                } else if result.as_ref().unwrap().status.success() {
+                    // Everything is fine. Report this event and send along the next HostAction.
+                    todo!()
+                } else {
+                    // We have a Result::Ok(Output), but Output indicates an error. Error state.
+                    todo!()
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                // The network is gone. This should never happen. We must panic.
+            }
+        }
+
+        // Wait for either Receiver to be ready, then try again.
+        true
     }
 }
 
@@ -216,6 +337,134 @@ mod tests {
                 "Received {:?}",
                 received
             );
+        }
+    }
+
+    mod _run_once {
+        use super::*;
+
+        #[test]
+        fn prioritizes_ui_messages() {
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+
+            // Send both UI and network messages.
+            let (plan, _, _, _) = plan();
+            ui.sender.try_send(ui::Message::RunPlan(plan)).unwrap();
+            network
+                .sender
+                .try_send(network::Report::Connecting("host".into()))
+                .unwrap();
+
+            let _ = executor._run_once(&mut HashMap::new());
+
+            // Verify that the UI message was retrieved and the network message was not.
+            assert_eq!(Err(TryRecvError::Empty), executor.ui.receiver.try_recv());
+            assert_eq!(
+                Ok(network::Report::Connecting("host".into())),
+                executor.network.receiver.try_recv()
+            );
+        }
+
+        mod with_ui_run_plan {
+            use super::*;
+
+            #[test]
+            fn enqueues_plan_for_existing_host_and_returns_true() {
+                let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+                let (mut executor, ui, network) = Executor::new(logger);
+                let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+
+                // The Plan we'll use ships with at least one host. (At time of writing, it has
+                // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
+                // ui::Message for easier use.
+                let (plan, _, _, _) = plan();
+                let host = plan.hosts()[0].clone();
+                let message = ui::Message::RunPlan(plan);
+
+                // Prepare host_plans by asking the code under test to run a Plan.
+                ui.sender.try_send(message.clone()).unwrap();
+                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(1, host_plans[&host].len());
+
+                // Send the same Plan and run the code again. Verify that the queue for the Plan's
+                // host lengthened to 2.
+                ui.sender.try_send(message).unwrap();
+                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(2, host_plans[&host].len());
+            }
+
+            #[test]
+            fn runs_action_and_enqueues_plan_for_new_host_and_returns_true() {
+                let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+                let (mut executor, ui, network) = Executor::new(logger);
+                let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+
+                // The Plan we'll use ships with at least one host. (At time of writing, it has
+                // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
+                // ui::Message for easier use.
+                let (plan, _, _, _) = plan();
+                let host = plan.hosts()[0].clone();
+                let message = ui::Message::RunPlan(plan);
+
+                // Send the Plan and run the code under test.
+                ui.sender.try_send(message).unwrap();
+                assert!(executor._run_once(&mut host_plans));
+
+                // Verify that the network received the right message.
+                let ncm = network.receiver.try_recv();
+                match ncm {
+                    Ok(NetworkControlMessage::RunAction(host_action)) => {
+                        assert_eq!(host, host_action.host());
+                    }
+                    message => panic!("Received {:?}", message),
+                }
+
+                // Verify that an iterator was enqueued for the host.
+                assert_eq!(1, host_plans[&host].len());
+            }
+
+            #[test]
+            fn processes_all_hosts_and_returns_true() {
+                // We could simply add a second host to runs_action_and_enqueues_plan_for_new_host,
+                // but the better approach is to use this test to check a scenario where some hosts
+                // are existing and others are new. We'll have two hosts of each kind, and they'll
+                // alternate.
+
+                let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+                let (mut executor, ui, network) = Executor::new(logger);
+                let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+
+                // Generate the Plan, verify that it has exactly one Manifest, and override that
+                // Manifest's hosts so we have two of our four hosts in the first run.
+                let (mut plan, _, _, _) = plan();
+                plan.manifests.truncate(1);
+                plan.manifests[0].hosts = vec!["Existing 1".into(), "Existing 2".into()];
+                let message = ui::Message::RunPlan(plan.clone());
+
+                // Send the Plan and run the code under test to populate the two "existing" hosts.
+                // Verify invariants for testing sanity.
+                ui.sender.try_send(message).unwrap();
+                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(2, host_plans.len());
+
+                // Override the hosts to intersperse two new entries. Send it to the code under
+                // test and run it again.
+                // Run the code under test.
+                plan.manifests[0].hosts = vec![
+                    "Existing 1".into(),
+                    "New 1".into(),
+                    "Existing 2".into(),
+                    "New 2".into(),
+                ];
+                let message = ui::Message::RunPlan(plan);
+                ui.sender.try_send(message).unwrap();
+                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(4, host_plans.len());
+
+                // Verify that the network received 4 messages (rather than, say, 6).
+                assert_eq!(4, network.receiver.try_iter().count());
+            }
         }
     }
 }
