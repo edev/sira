@@ -13,7 +13,7 @@ use crate::logger;
 pub type ChannelPair = executor::ChannelPair<Message, executor::Report>;
 
 /// Messages that a UI can send to [Executor].
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Message {
     /// Asks [Executor] to execute a [Plan].
     ///

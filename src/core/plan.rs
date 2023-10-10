@@ -14,7 +14,7 @@ use std::sync::Arc;
 ///
 /// This struct constitutes the public interface that executors use to interact with
 /// [Manifest]s, [Task]s, and [Action]s on the controller.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Plan {
     /// The official, ordered list of manifests that comprise the plan.
     ///
