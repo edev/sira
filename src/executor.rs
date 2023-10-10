@@ -28,7 +28,7 @@ use crate::logger::ExecutiveLog;
 use crate::network;
 use crate::ui;
 use crossbeam::channel::{self, Receiver, Sender, TryRecvError};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 /// Coordinates message routing, plan execution, and program flow.
@@ -56,6 +56,36 @@ pub struct Executor {
 pub struct ChannelPair<S, R> {
     pub sender: Sender<S>,
     pub receiver: Receiver<R>,
+}
+
+/// An error indicating the reason [Executor::run] closed unexpectedly.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Error {
+    kind: ErrorKind,
+}
+
+/// The precise reason for the unexpected exit.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ErrorKind {
+    /// [Executor] could not communicate with the UI.
+    UiClosed,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use ErrorKind::*;
+        match self.kind {
+            UiClosed => write!(f, "lost connection to UI"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+#[derive(Clone, Debug, PartialEq)]
+enum RunStatus {
+    Continue,
+    Exit(Result<(), Error>),
 }
 
 impl Executor {
@@ -106,10 +136,13 @@ impl Executor {
     /// Blocks until the program is getting ready to exit. You will probably wish to do something
     /// like spawn a thread to run this method.
     #[allow(clippy::result_unit_err)]
-    pub fn run(mut self) {
+    pub fn run(mut self) -> Result<(), Error> {
         let mut host_plans = HashMap::new();
+        let mut ignored_hosts = HashSet::new();
         loop {
-            while self._run_once(&mut host_plans) {}
+            if let RunStatus::Exit(result) = self._run_once(&mut host_plans, &mut ignored_hosts) {
+                return result;
+            }
         }
     }
 
@@ -131,8 +164,12 @@ impl Executor {
     ///
     /// # Returns
     ///
-    /// Returns whether to continue looping.
-    fn _run_once(&mut self, host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>) -> bool {
+    /// Returns whether to continue looping, plus a return value if exiting.
+    fn _run_once(
+        &mut self,
+        host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
+        ignored_hosts: &mut HashSet<String>,
+    ) -> RunStatus {
         // For a detailed discussion of how this kind of event loop is designed, see
         // crate::reference::network::Network::_run_once.
 
@@ -177,37 +214,62 @@ impl Executor {
                         }
                     }
                 }
-                return true;
+                return RunStatus::Continue;
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
                 // The UI has closed or crashed. This means we exit. Whether we exit with success
                 // or failure depends on whether we were idle.
+
+                if host_plans.len() > 0 {
+                    return RunStatus::Exit(Err(Error {
+                        kind: ErrorKind::UiClosed,
+                    }));
+                }
+                return RunStatus::Exit(Ok(()));
             }
         }
 
         use network::Report::*;
         // If there are no messages from the UI, then check for reports from the network.
-        match self.network.receiver.try_recv() {
+
+        let maybe_report = self.network.receiver.try_recv();
+
+        // First, pass any received reports to the logger and the UI.
+        if let Ok(ref report) = maybe_report {
+            let report = Report::NetworkReport(report.clone());
+            // TODO Consider making this method return an error instead of panicking. Then add an
+            // ErrorKind variant, e.g. LogDisconnected.
+            self.logger.report(report.clone());
+
+            if let Err(_) = self.ui.sender.send(report) {
+                return RunStatus::Exit(Err(Error {
+                    kind: ErrorKind::UiClosed,
+                }));
+            }
+        }
+
+        // Finally, process the report, as well as any channel errors.
+        match maybe_report {
             Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
-                // This is just a status update. No actions needed; just inform everyone.
-                todo!()
+                // This is just a status update. No actions needed.
             }
-            Ok(FailedToConnect { host, error }) => {
-                // Error state.
-                todo!()
-            }
-            Ok(Disconnected {
+            Ok(FailedToConnect { host, error })
+            | Ok(Disconnected {
                 host,
                 error: Some(error),
             }) => {
-                // Error state.
-                todo!()
+                // Proceed with the run, but assume that this host is inaccessible.
+                self.ignore_host(host_plans, ignored_hosts, &host);
             }
             Ok(Disconnected { host, error: None }) => {
-                // If the host should have been working, then this is an error state. If this is
-                // expected, then it's not.
-                todo!()
+                // If we had plans for the host, then it was disconnected while it had work to do.
+                // Proceed the same way as FailedToConnect.
+                //
+                // Otherwise, this is not an error condition. No actions necessary.
+                if host_plans.contains_key(&host) {
+                    self.ignore_host(host_plans, ignored_hosts, &host);
+                }
             }
             Ok(ActionResult {
                 host,
@@ -223,6 +285,8 @@ impl Executor {
                     todo!()
                 } else if result.as_ref().unwrap().status.success() {
                     // Everything is fine. Report this event and send along the next HostAction.
+                    // If there are no most HostActions for this host, then tell the network to
+                    // disconnect and remove the host from host_plans.
                     todo!()
                 } else {
                     // We have a Result::Ok(Output), but Output indicates an error. Error state.
@@ -236,7 +300,27 @@ impl Executor {
         }
 
         // Wait for either Receiver to be ready, then try again.
-        true
+        RunStatus::Continue
+    }
+
+    fn ignore_host(
+        &self,
+        host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
+        ignored_hosts: &mut HashSet<String>,
+        host: &str,
+    ) {
+        // Remove any existing plans for this host. In the event that the network isn't
+        // perfectly behaved, ignore any errors trying to remove the host, as we can't
+        // know precisely what's going on and we can keep our own data in a valid state.
+        if host_plans.remove(host).is_none() {
+            self.logger.warning(format!(
+                "Tried to clear host \"{}\" from Executor's state, but could not find it",
+                host
+            ));
+        }
+
+        // Ignore this host if it comes up in the future.
+        ignored_hosts.insert(host.to_string());
     }
 }
 
@@ -258,7 +342,7 @@ pub enum NetworkControlMessage {
 
 /// Status updates sent to the [ui] and [logger].
 // TODO Implement std::fmt::Display.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Report {
     /// There's no more work to do; the program is now either idle or finished, depending on the
     /// UI's program flow.
@@ -272,8 +356,12 @@ pub enum Report {
 mod tests {
     use super::*;
     use crate::core::fixtures::plan;
+    use crate::core::Action;
     use crate::logger::LogEntry;
     use crate::ui;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+    use std::process::Output;
 
     mod new {
         use super::*;
@@ -356,7 +444,7 @@ mod tests {
                 .try_send(network::Report::Connecting("host".into()))
                 .unwrap();
 
-            let _ = executor._run_once(&mut HashMap::new());
+            let _ = executor._run_once(&mut HashMap::new(), &mut HashSet::new());
 
             // Verify that the UI message was retrieved and the network message was not.
             assert_eq!(Err(TryRecvError::Empty), executor.ui.receiver.try_recv());
@@ -370,10 +458,11 @@ mod tests {
             use super::*;
 
             #[test]
-            fn enqueues_plan_for_existing_host_and_returns_true() {
+            fn enqueues_plan_for_existing_host_and_continues() {
                 let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
                 let (mut executor, ui, network) = Executor::new(logger);
                 let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                let mut ignored_hosts: HashSet<String> = HashSet::new();
 
                 // The Plan we'll use ships with at least one host. (At time of writing, it has
                 // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
@@ -384,21 +473,28 @@ mod tests {
 
                 // Prepare host_plans by asking the code under test to run a Plan.
                 ui.sender.try_send(message.clone()).unwrap();
-                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
                 assert_eq!(1, host_plans[&host].len());
 
                 // Send the same Plan and run the code again. Verify that the queue for the Plan's
                 // host lengthened to 2.
                 ui.sender.try_send(message).unwrap();
-                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
                 assert_eq!(2, host_plans[&host].len());
             }
 
             #[test]
-            fn runs_action_and_enqueues_plan_for_new_host_and_returns_true() {
+            fn runs_action_and_enqueues_plan_for_new_host_and_continues() {
                 let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
                 let (mut executor, ui, network) = Executor::new(logger);
                 let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                let mut ignored_hosts: HashSet<String> = HashSet::new();
 
                 // The Plan we'll use ships with at least one host. (At time of writing, it has
                 // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
@@ -409,7 +505,10 @@ mod tests {
 
                 // Send the Plan and run the code under test.
                 ui.sender.try_send(message).unwrap();
-                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
 
                 // Verify that the network received the right message.
                 let ncm = network.receiver.try_recv();
@@ -425,7 +524,7 @@ mod tests {
             }
 
             #[test]
-            fn processes_all_hosts_and_returns_true() {
+            fn processes_all_hosts_and_continues() {
                 // We could simply add a second host to runs_action_and_enqueues_plan_for_new_host,
                 // but the better approach is to use this test to check a scenario where some hosts
                 // are existing and others are new. We'll have two hosts of each kind, and they'll
@@ -434,6 +533,7 @@ mod tests {
                 let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
                 let (mut executor, ui, network) = Executor::new(logger);
                 let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                let mut ignored_hosts: HashSet<String> = HashSet::new();
 
                 // Generate the Plan, verify that it has exactly one Manifest, and override that
                 // Manifest's hosts so we have two of our four hosts in the first run.
@@ -445,7 +545,10 @@ mod tests {
                 // Send the Plan and run the code under test to populate the two "existing" hosts.
                 // Verify invariants for testing sanity.
                 ui.sender.try_send(message).unwrap();
-                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
                 assert_eq!(2, host_plans.len());
 
                 // Override the hosts to intersperse two new entries. Send it to the code under
@@ -459,12 +562,410 @@ mod tests {
                 ];
                 let message = ui::Message::RunPlan(plan);
                 ui.sender.try_send(message).unwrap();
-                assert!(executor._run_once(&mut host_plans));
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
                 assert_eq!(4, host_plans.len());
 
                 // Verify that the network received 4 messages (rather than, say, 6).
                 assert_eq!(4, network.receiver.try_iter().count());
             }
         }
+
+        #[test]
+        fn exits_with_error_if_active() {
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            // The Plan we'll use ships with at least one host. (At time of writing, it has
+            // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
+            // ui::Message for easier use.
+            let (plan, _, _, _) = plan();
+            let host = plan.hosts()[0].clone();
+            let message = ui::Message::RunPlan(plan);
+
+            // Prepare host_plans by asking the code under test to run a Plan.
+            ui.sender.try_send(message.clone()).unwrap();
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+            assert_eq!(1, host_plans[&host].len());
+
+            // Simulate the UI closing.
+            drop(ui);
+
+            assert_eq!(
+                RunStatus::Exit(Err(Error {
+                    kind: ErrorKind::UiClosed
+                })),
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+        }
+
+        #[test]
+        fn exits_ok_if_idle() {
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            // The Plan we'll use ships with at least one host. (At time of writing, it has
+            // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
+            // ui::Message for easier use.
+            let (plan, _, _, _) = plan();
+            let host = plan.hosts()[0].clone();
+            let message = ui::Message::RunPlan(plan);
+
+            // Simulate the UI closing.
+            drop(ui);
+
+            assert_eq!(
+                RunStatus::Exit(Ok(())),
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+        }
+
+        #[test]
+        fn logs_all_reports() {
+            use network::Report::*;
+            let reports = [
+                Connecting("host".into()),
+                Connected("host".into()),
+                RunningAction {
+                    host: "host".to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                },
+                FailedToConnect {
+                    host: "host".to_string(),
+                    error: "error".to_string(),
+                },
+                Disconnected {
+                    host: "host".to_string(),
+                    error: Some("error".to_string()),
+                },
+                Disconnected {
+                    host: "host".to_string(),
+                    error: None,
+                },
+                ActionResult {
+                    host: "host".to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                    result: Ok(Output {
+                        status: ExitStatus::from_raw(0),
+                        stdout: "Success".into(),
+                        stderr: "".into(),
+                    }),
+                },
+            ];
+
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            for report in &reports {
+                network.sender.send(report.clone()).unwrap();
+            }
+
+            for report in &reports {
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
+            }
+
+            assert_eq!(reports.len(), report_receiver.try_iter().count());
+        }
+
+        #[test]
+        fn passes_all_reports_on_to_ui() {
+            use network::Report::*;
+            let reports = [
+                Connecting("host".into()),
+                Connected("host".into()),
+                RunningAction {
+                    host: "host".to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                },
+                FailedToConnect {
+                    host: "host".to_string(),
+                    error: "error".to_string(),
+                },
+                Disconnected {
+                    host: "host".to_string(),
+                    error: Some("error".to_string()),
+                },
+                Disconnected {
+                    host: "host".to_string(),
+                    error: None,
+                },
+                ActionResult {
+                    host: "host".to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                    result: Ok(Output {
+                        status: ExitStatus::from_raw(0),
+                        stdout: "Success".into(),
+                        stderr: "".into(),
+                    }),
+                },
+            ];
+
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            for report in &reports {
+                network.sender.send(report.clone()).unwrap();
+            }
+
+            for report in &reports {
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
+            }
+
+            assert_eq!(reports.len(), ui.receiver.try_iter().count());
+        }
+
+        #[test]
+        fn connecting_continues() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+            network.sender.send(Connecting("host".into())).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+        }
+
+        #[test]
+        fn connected_continues() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+            network.sender.send(Connected("host".into())).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+        }
+
+        #[test]
+        fn running_action_continues() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+            let report = RunningAction {
+                host: "host".to_string(),
+                manifest_source: Some("manifest".to_string()),
+                manifest_name: "mname".to_string(),
+                task_source: Some("task".to_string()),
+                task_name: "tname".to_string(),
+                action: Arc::new(Action::Shell {
+                    commands: vec!["pwd".to_string()],
+                }),
+            };
+            network.sender.send(report).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+        }
+
+        #[test]
+        fn failed_to_connect_clears_and_ignores_host() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            // Pre-populate host_plans so there's an entry to clear.
+            const HOST: &str = "host";
+            let old_queue = host_plans.insert(HOST.to_string(), VecDeque::new());
+            assert!(old_queue.is_none());
+
+            let report = FailedToConnect {
+                host: HOST.to_string(),
+                error: "error".to_string(),
+            };
+            network.sender.send(report).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+
+            assert_eq!(0, host_plans.len());
+            assert!(ignored_hosts.contains(HOST));
+        }
+
+        #[test]
+        fn failed_to_connect_logs_error_if_host_not_found() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+            const HOST: &str = "host";
+
+            // For this test, we deliberately don't pre-populate host_plans.
+
+            let report = FailedToConnect {
+                host: HOST.to_string(),
+                error: "error".to_string(),
+            };
+            network.sender.send(report).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+
+            assert_eq!(0, host_plans.len());
+            assert!(ignored_hosts.contains(HOST));
+
+            assert_eq!(
+                Ok(LogEntry::Warning(format!(
+                    "Tried to clear host \"{}\" from Executor's state, but could not find it",
+                    HOST
+                ))),
+                raw_receiver.try_recv()
+            );
+        }
+
+        #[test]
+        fn disconnected_with_error_clears_and_ignores_host() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            // Pre-populate host_plans so there's an entry to clear.
+            const HOST: &str = "host";
+            let old_queue = host_plans.insert(HOST.to_string(), VecDeque::new());
+            assert!(old_queue.is_none());
+
+            let report = Disconnected {
+                host: HOST.to_string(),
+                error: Some("error".to_string()),
+            };
+            network.sender.send(report).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+
+            assert_eq!(0, host_plans.len());
+            assert!(ignored_hosts.contains(HOST));
+        }
+
+        #[test]
+        fn disconnected_with_error_logs_error_if_host_not_found() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+            const HOST: &str = "host";
+
+            // For this test, we deliberately don't pre-populate host_plans.
+
+            let report = Disconnected {
+                host: HOST.to_string(),
+                error: Some("error".to_string()),
+            };
+            network.sender.send(report).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+
+            assert_eq!(0, host_plans.len());
+            assert!(ignored_hosts.contains(HOST));
+
+            assert_eq!(
+                Ok(LogEntry::Warning(format!(
+                    "Tried to clear host \"{}\" from Executor's state, but could not find it",
+                    HOST
+                ))),
+                raw_receiver.try_recv()
+            );
+        }
+
+        #[test]
+        fn disconnected_without_error_unexpectedly_clears_and_ignores_host() {
+            use network::Report::*;
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            // Pre-populate host_plans so there's an entry to clear.
+            const HOST: &str = "host";
+            let old_queue = host_plans.insert(HOST.to_string(), VecDeque::new());
+            assert!(old_queue.is_none());
+
+            let report = Disconnected {
+                host: HOST.to_string(),
+                error: None,
+            };
+            network.sender.send(report).unwrap();
+
+            assert_eq!(
+                RunStatus::Continue,
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+
+            assert_eq!(0, host_plans.len());
+            assert!(ignored_hosts.contains(HOST));
+        }
+
+        // TODO Test everything below disconnected.
+
+        // TODO Ignore hosts on the ignore list and test this.
     }
 }

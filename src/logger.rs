@@ -116,7 +116,7 @@ impl Log {
     /// Sends a raw, warning-level log message.
     #[allow(unused_variables)]
     pub fn warning(&self, message: String) {
-        todo!();
+        self.raw.send(LogEntry::Warning(message)).unwrap();
     }
 
     /// Sends a raw, error-level log message.
@@ -133,7 +133,7 @@ impl Log {
 }
 
 /// Severity classifications for log entries.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum LogEntry<E> {
     /// Just a status update; nothing's wrong.
     Notice(E),
