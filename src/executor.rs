@@ -192,7 +192,6 @@ impl Executor {
             }
         }
 
-        use network::Report::*;
         // If there are no messages from the UI, then check for reports from the network.
 
         let maybe_report = self.network.receiver.try_recv();
@@ -212,54 +211,7 @@ impl Executor {
         }
 
         // Finally, process the report, as well as any channel errors.
-        match maybe_report {
-            Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
-                // This is just a status update. No actions needed.
-            }
-            Ok(FailedToConnect { host, error })
-            | Ok(Disconnected {
-                host,
-                error: Some(error),
-            }) => {
-                // Proceed with the run, but assume that this host is inaccessible.
-                self.ignore_host(host_plans, ignored_hosts, &host);
-            }
-            Ok(Disconnected { host, error: None }) => {
-                // If we had plans for the host, then it was disconnected while it had work to do.
-                // Proceed the same way as FailedToConnect.
-                //
-                // Otherwise, this is not an error condition. No actions necessary.
-                if host_plans.contains_key(&host) {
-                    self.ignore_host(host_plans, ignored_hosts, &host);
-                }
-            }
-            Ok(ActionResult {
-                host,
-                manifest_source,
-                manifest_name,
-                task_source,
-                task_name,
-                action,
-                result,
-            }) => {
-                if result.is_err() {
-                    // Error state.
-                    todo!()
-                } else if result.as_ref().unwrap().status.success() {
-                    // Everything is fine. Report this event and send along the next HostAction.
-                    // If there are no most HostActions for this host, then tell the network to
-                    // disconnect and remove the host from host_plans.
-                    todo!()
-                } else {
-                    // We have a Result::Ok(Output), but Output indicates an error. Error state.
-                    todo!()
-                }
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                // The network is gone. This should never happen. We must panic.
-            }
-        }
+        self.process_report(host_plans, ignored_hosts, maybe_report);
 
         // Wait for either Receiver to be ready, then try again.
         RunStatus::Continue
@@ -310,6 +262,63 @@ impl Executor {
             }
         }
         RunStatus::Continue
+    }
+
+    fn process_report(
+        &self,
+        host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
+        ignored_hosts: &mut HashSet<String>,
+        maybe_report: Result<network::Report, TryRecvError>,
+    ) {
+        use network::Report::*;
+        match maybe_report {
+            Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
+                // This is just a status update. No actions needed.
+            }
+            Ok(FailedToConnect { host, error })
+            | Ok(Disconnected {
+                host,
+                error: Some(error),
+            }) => {
+                // Proceed with the run, but assume that this host is inaccessible.
+                self.ignore_host(host_plans, ignored_hosts, &host);
+            }
+            Ok(Disconnected { host, error: None }) => {
+                // If we had plans for the host, then it was disconnected while it had work to do.
+                // Proceed the same way as FailedToConnect.
+                //
+                // Otherwise, this is not an error condition. No actions necessary.
+                if host_plans.contains_key(&host) {
+                    self.ignore_host(host_plans, ignored_hosts, &host);
+                }
+            }
+            Ok(ActionResult {
+                host,
+                manifest_source,
+                manifest_name,
+                task_source,
+                task_name,
+                action,
+                result,
+            }) => {
+                if result.is_err() {
+                    // Error state.
+                    todo!()
+                } else if result.as_ref().unwrap().status.success() {
+                    // Everything is fine. Report this event and send along the next HostAction.
+                    // If there are no most HostActions for this host, then tell the network to
+                    // disconnect and remove the host from host_plans.
+                    todo!()
+                } else {
+                    // We have a Result::Ok(Output), but Output indicates an error. Error state.
+                    todo!()
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                // The network is gone. This should never happen. We must panic.
+            }
+        }
     }
 
     fn ignore_host(
