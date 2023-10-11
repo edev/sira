@@ -27,7 +27,7 @@ use crate::logger;
 use crate::logger::ExecutiveLog;
 use crate::network;
 use crate::ui;
-use crossbeam::channel::{self, Receiver, Sender, TryRecvError};
+use crossbeam::channel::{self, Receiver, Select, Sender, TryRecvError};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -140,6 +140,11 @@ impl Executor {
         let mut host_plans = HashMap::new();
         let mut ignored_hosts = HashSet::new();
         loop {
+            let mut select = Select::new();
+            select.recv(&self.ui.receiver);
+            select.recv(&self.network.receiver);
+            select.ready();
+
             if let RunStatus::Exit(result) = self._run_once(&mut host_plans, &mut ignored_hosts) {
                 return result;
             }
@@ -211,7 +216,9 @@ impl Executor {
         }
 
         // Finally, process the report, as well as any channel errors.
-        self.process_report(host_plans, ignored_hosts, maybe_report);
+        if let Some(retval) = self.process_report(host_plans, ignored_hosts, maybe_report) {
+            return retval;
+        }
 
         // Wait for either Receiver to be ready, then try again.
         RunStatus::Continue
@@ -268,12 +275,18 @@ impl Executor {
         RunStatus::Continue
     }
 
+    /// Private helper for processing a [network::Report]. Used by [Self::_run_once].
+    ///
+    /// # Returns
+    ///
+    /// If [None], the calling code should continue executing in its normal control flow.
+    /// If [Some], the calling code should return the contained value.
     fn process_report(
         &self,
         host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
         ignored_hosts: &mut HashSet<String>,
         maybe_report: Result<network::Report, TryRecvError>,
-    ) {
+    ) -> Option<RunStatus> {
         use network::Report::*;
         match maybe_report {
             Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
@@ -322,6 +335,9 @@ impl Executor {
                     // HostActions for this host, then tell the network to disconnect and remove
                     // the host from host_plans.
 
+                    // If we're operating on an ignored host, this suggests either a logic error or
+                    // a protocol design flaw. It's not particularly serious, so we won't panic,
+                    // but we'll panic during testing to catch it.
                     debug_assert!(
                         !ignored_hosts.contains(host),
                         "Received an ActionResult from an ignored host:\n{:?}",
@@ -339,7 +355,7 @@ impl Executor {
                                 queue for this host",
                                 host
                             ));
-                            return;
+                            return None;
                         }
                     };
 
@@ -369,6 +385,17 @@ impl Executor {
                                 .sender
                                 .send(NetworkControlMessage::Disconnect(host.clone()))
                                 .unwrap();
+
+                            // If the queue is empty, the whole data structure might be empty, too.
+                            //
+                            // If we can't reach the UI, exit with success, since the system is
+                            // idle anyway.
+                            if host_plans.is_empty() {
+                                self.logger.report(Report::Done);
+                                if self.ui.sender.send(Report::Done).is_err() {
+                                    return Some(RunStatus::Exit(Ok(())));
+                                }
+                            }
                         }
                     }
                 }
@@ -382,6 +409,7 @@ impl Executor {
                 );
             }
         }
+        None
     }
 
     fn ignore_host(
@@ -1405,6 +1433,48 @@ mod tests {
             }
 
             #[test]
+            fn action_result_success_warns_if_host_not_found() {
+                use network::Report::*;
+                let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+                let (mut executor, ui, network) = Executor::new(logger);
+                let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                let mut ignored_hosts: HashSet<String> = HashSet::new();
+                const HOST: &str = "host";
+
+                let report = ActionResult {
+                    host: HOST.to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                    result: Ok(Output {
+                        status: ExitStatus::from_raw(0),
+                        stdout: "Success".into(),
+                        stderr: "".into(),
+                    }),
+                };
+                network.sender.send(report).unwrap();
+
+                // Run the code under test.
+                assert_eq!(
+                    RunStatus::Continue,
+                    executor._run_once(&mut host_plans, &mut ignored_hosts)
+                );
+
+                assert_eq!(
+                    Ok(LogEntry::Warning(format!(
+                        "Received an ActionResult for host \"{}\" but couldn't find a \
+                        queue for this host",
+                        HOST
+                    ))),
+                    raw_receiver.try_recv(),
+                );
+            }
+
+            #[test]
             fn action_result_success_disconnects_host_if_no_more_actions() {
                 use network::Report::*;
                 let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
@@ -1461,13 +1531,29 @@ mod tests {
             }
 
             #[test]
-            fn action_result_success_warns_if_host_not_found() {
+            fn reports_done_if_host_plans_is_empty() {
                 use network::Report::*;
                 let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
                 let (mut executor, ui, network) = Executor::new(logger);
                 let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
                 let mut ignored_hosts: HashSet<String> = HashSet::new();
                 const HOST: &str = "host";
+
+                // Create a Plan with no Actions but with the right host.
+                let (mut empty_plan, _, _, _) = plan();
+                empty_plan.manifests.truncate(1);
+                let manifest = &mut empty_plan.manifests[0];
+                manifest.hosts.clear();
+                manifest.hosts.push(HOST.to_string());
+                manifest.include.clear();
+
+                // Create an iterator with no HostActions left, based on the above Plan.
+                let mut done_iter = empty_plan.plan_for(HOST).unwrap().into_iter();
+
+                // Set up the test scenario.
+                let queue = VecDeque::from([done_iter]);
+                let old_queue = host_plans.insert(HOST.to_string(), queue);
+                assert!(old_queue.is_none());
 
                 let report = ActionResult {
                     host: HOST.to_string(),
@@ -1492,14 +1578,70 @@ mod tests {
                     executor._run_once(&mut host_plans, &mut ignored_hosts)
                 );
 
+                let logged_reports: Vec<_> = report_receiver.try_iter().collect();
+                assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+            }
+
+            #[test]
+            fn exits_if_host_plans_is_empty_and_ui_is_closed() {
+                // The code under test is specifically the RunStatus::Exit(Ok(()) inside
+                // process_report(). This code only runs under a specific race outcome: the UI
+                // closes between _run_once() reporting a network::Report::ActionResult and
+                // process_report() reaching the code under test. Therefore, this test breaks with
+                // the other tests in this section and directly calls process_report() after
+                // closing the UI.
+
+                use network::Report::*;
+                let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+                let (mut executor, ui, network) = Executor::new(logger);
+                let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                let mut ignored_hosts: HashSet<String> = HashSet::new();
+                const HOST: &str = "host";
+
+                // Create a Plan with no Actions but with the right host.
+                let (mut empty_plan, _, _, _) = plan();
+                empty_plan.manifests.truncate(1);
+                let manifest = &mut empty_plan.manifests[0];
+                manifest.hosts.clear();
+                manifest.hosts.push(HOST.to_string());
+                manifest.include.clear();
+
+                // Create an iterator with no HostActions left, based on the above Plan.
+                let mut done_iter = empty_plan.plan_for(HOST).unwrap().into_iter();
+
+                // Set up the test scenario.
+                let queue = VecDeque::from([done_iter]);
+                let old_queue = host_plans.insert(HOST.to_string(), queue);
+                assert!(old_queue.is_none());
+
+                let report = ActionResult {
+                    host: HOST.to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                    result: Ok(Output {
+                        status: ExitStatus::from_raw(0),
+                        stdout: "Success".into(),
+                        stderr: "".into(),
+                    }),
+                };
+                network.sender.send(report).unwrap();
+
+                drop(ui.receiver);
+
+                // Run the code under test.
+                let maybe_report = executor.network.receiver.try_recv();
                 assert_eq!(
-                    Ok(LogEntry::Warning(format!(
-                        "Received an ActionResult for host \"{}\" but couldn't find a \
-                        queue for this host",
-                        HOST
-                    ))),
-                    raw_receiver.try_recv(),
+                    Some(RunStatus::Exit(Ok(()))),
+                    executor.process_report(&mut host_plans, &mut ignored_hosts, maybe_report)
                 );
+
+                let logged_reports: Vec<_> = report_receiver.try_iter().collect();
+                assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
             }
 
             #[test]
@@ -1517,9 +1659,5 @@ mod tests {
                 executor._run_once(&mut host_plans, &mut ignored_hosts);
             }
         }
-
-        // TODO Idle/done when last iterator in whole collection is done.
-
-        // TODO Select.
     }
 }
