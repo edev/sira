@@ -176,45 +176,7 @@ impl Executor {
         // Prioritize messages from the UI, since they represent the user's intent.
         match self.ui.receiver.try_recv() {
             Ok(ui::Message::RunPlan(plan)) => {
-                // For each host in the Plan, either enqueue the Plan or, if it's a new host, start
-                // a new queue and run the first HostAction.
-                for host in plan.hosts() {
-                    use std::collections::hash_map::Entry::*;
-                    match host_plans.entry(host.clone()) {
-                        Occupied(mut entry) => {
-                            // Existing. Simply enqueue. The host is already busy.
-                            //
-                            // If unwrap panics, then there's a bug somewhere in crate::core,
-                            // because plan.hosts() returned a list that included this host.
-                            let iter = plan.plan_for(&host).unwrap().into_iter();
-                            entry.get_mut().push_back(iter);
-                        }
-                        Vacant(entry) => {
-                            // New host. Send out the first HostAction, and then enqueue the
-                            // iterator for future use.
-                            //
-                            // If unwrap panics, then there's a bug somewhere in crate::core,
-                            // because plan.hosts() returned a list that included this host.
-                            let mut iter = plan.plan_for(&host).unwrap().into_iter();
-
-                            // If there isn't at least one HostAction in the iterator, then there's
-                            // a bug somewhere in crate::core, because plan.hosts() returned a list
-                            // that included this host.
-                            let host_action = iter.next().unwrap();
-
-                            // Inform the network so it can contact the host. If the channel to the
-                            // network is closed, the program is crashing, so we need to panic.
-                            let message = NetworkControlMessage::RunAction(host_action);
-                            self.network.sender.send(message).unwrap();
-
-                            // Enqueue the iterator.
-                            let mut queue = VecDeque::new();
-                            queue.push_back(iter);
-                            entry.insert(queue);
-                        }
-                    }
-                }
-                return RunStatus::Continue;
+                return self.process_run_plan(host_plans, ignored_hosts, plan);
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
@@ -300,6 +262,53 @@ impl Executor {
         }
 
         // Wait for either Receiver to be ready, then try again.
+        RunStatus::Continue
+    }
+
+    fn process_run_plan(
+        &self,
+        host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
+        ignored_hosts: &mut HashSet<String>,
+        plan: Plan,
+    ) -> RunStatus {
+        // For each host in the Plan, either enqueue the Plan or, if it's a new host, start
+        // a new queue and run the first HostAction.
+        for host in plan.hosts() {
+            use std::collections::hash_map::Entry::*;
+            match host_plans.entry(host.clone()) {
+                Occupied(mut entry) => {
+                    // Existing. Simply enqueue. The host is already busy.
+                    //
+                    // If unwrap panics, then there's a bug somewhere in crate::core,
+                    // because plan.hosts() returned a list that included this host.
+                    let iter = plan.plan_for(&host).unwrap().into_iter();
+                    entry.get_mut().push_back(iter);
+                }
+                Vacant(entry) => {
+                    // New host. Send out the first HostAction, and then enqueue the
+                    // iterator for future use.
+                    //
+                    // If unwrap panics, then there's a bug somewhere in crate::core,
+                    // because plan.hosts() returned a list that included this host.
+                    let mut iter = plan.plan_for(&host).unwrap().into_iter();
+
+                    // If there isn't at least one HostAction in the iterator, then there's
+                    // a bug somewhere in crate::core, because plan.hosts() returned a list
+                    // that included this host.
+                    let host_action = iter.next().unwrap();
+
+                    // Inform the network so it can contact the host. If the channel to the
+                    // network is closed, the program is crashing, so we need to panic.
+                    let message = NetworkControlMessage::RunAction(host_action);
+                    self.network.sender.send(message).unwrap();
+
+                    // Enqueue the iterator.
+                    let mut queue = VecDeque::new();
+                    queue.push_back(iter);
+                    entry.insert(queue);
+                }
+            }
+        }
         RunStatus::Continue
     }
 
