@@ -776,6 +776,28 @@ mod tests {
         }
 
         #[test]
+        fn ui_closed_exits_with_error() {
+            let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
+            let (mut executor, ui, network) = Executor::new(logger);
+            let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+            let mut ignored_hosts: HashSet<String> = HashSet::new();
+
+            // Send a report that will be forwarded to the UI.
+            let report = network::Report::Connecting("host".into());
+            network.sender.send(report).unwrap();
+
+            // Close the UI.
+            drop(ui.receiver);
+
+            assert_eq!(
+                RunStatus::Exit(Err(Error {
+                    kind: ErrorKind::UiClosed,
+                })),
+                executor._run_once(&mut host_plans, &mut ignored_hosts)
+            );
+        }
+
+        #[test]
         fn connecting_continues() {
             use network::Report::*;
             let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
