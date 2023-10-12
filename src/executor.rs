@@ -606,6 +606,16 @@ mod tests {
             fn send_from_network(&self, report: network::Report) {
                 self.network.sender.try_send(report).unwrap();
             }
+
+            /// Calls _run_once, pulling arguments from the fixture itself, and asserts that it
+            /// exits with RunStatus::Continue.
+            fn runs_and_continues(&mut self) {
+                assert_eq!(
+                    RunStatus::Continue,
+                    self.executor
+                        ._run_once(&mut self.host_plans, &mut self.ignored_hosts)
+                );
+            }
         }
 
         #[test]
@@ -881,20 +891,17 @@ mod tests {
             #[test]
             fn logs_all_reports() {
                 let reports = reports();
-
                 let mut fixture = Fixture::new();
 
+                // First, send all reports. This is done in a separate loop from running the code
+                // under test so that the code under test has every opportunity to misbehave when
+                // given a lengthy message queue.
                 for report in &reports {
                     fixture.send_from_network(report.clone());
                 }
 
                 for report in &reports {
-                    assert_eq!(
-                        RunStatus::Continue,
-                        fixture
-                            .executor
-                            ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                    );
+                    fixture.runs_and_continues();
                 }
 
                 assert_eq!(reports.len(), fixture.report_receiver.try_iter().count());
@@ -903,20 +910,15 @@ mod tests {
             #[test]
             fn passes_all_reports_on_to_ui() {
                 let reports = reports();
-
                 let mut fixture = Fixture::new();
 
+                // See note in logs_all_reports.
                 for report in &reports {
                     fixture.send_from_network(report.clone());
                 }
 
                 for report in &reports {
-                    assert_eq!(
-                        RunStatus::Continue,
-                        fixture
-                            .executor
-                            ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                    );
+                    fixture.runs_and_continues();
                 }
 
                 assert_eq!(reports.len(), fixture.ui.receiver.try_iter().count());
@@ -945,40 +947,22 @@ mod tests {
 
             #[test]
             fn connecting_continues() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
-
-                fixture.send_from_network(Connecting("host".into()));
-
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.send_from_network(network::Report::Connecting("host".into()));
+                fixture.runs_and_continues();
             }
 
             #[test]
             fn connected_continues() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
-
-                fixture.send_from_network(Connected("host".into()));
-
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.send_from_network(network::Report::Connected("host".into()));
+                fixture.runs_and_continues();
             }
 
             #[test]
             fn running_action_continues() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
-
-                let report = RunningAction {
+                let report = network::Report::RunningAction {
                     host: "host".to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -989,18 +973,11 @@ mod tests {
                     }),
                 };
                 fixture.send_from_network(report);
-
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
             }
 
             #[test]
             fn failed_to_connect_clears_and_ignores_host() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1009,18 +986,13 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = FailedToConnect {
+                let report = network::Report::FailedToConnect {
                     host: fixture.host.to_string(),
                     error: "error".to_string(),
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1028,23 +1000,17 @@ mod tests {
 
             #[test]
             fn failed_to_connect_logs_error_if_host_not_found() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // For this test, we deliberately don't pre-populate host_plans.
 
-                let report = FailedToConnect {
+                let report = network::Report::FailedToConnect {
                     host: fixture.host.to_string(),
                     error: "error".to_string(),
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1060,7 +1026,6 @@ mod tests {
 
             #[test]
             fn disconnected_with_error_clears_and_ignores_host() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1069,18 +1034,13 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = Disconnected {
+                let report = network::Report::Disconnected {
                     host: fixture.host.to_string(),
                     error: Some("error".to_string()),
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1088,23 +1048,17 @@ mod tests {
 
             #[test]
             fn disconnected_with_error_logs_error_if_host_not_found() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // For this test, we deliberately don't pre-populate host_plans.
 
-                let report = Disconnected {
+                let report = network::Report::Disconnected {
                     host: fixture.host.to_string(),
                     error: Some("error".to_string()),
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1120,7 +1074,6 @@ mod tests {
 
             #[test]
             fn disconnected_without_error_unexpectedly_clears_and_ignores_host() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1129,18 +1082,13 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = Disconnected {
+                let report = network::Report::Disconnected {
                     host: fixture.host.to_string(),
                     error: None,
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1148,7 +1096,6 @@ mod tests {
 
             #[test]
             fn action_result_err_disconnects_and_ignores() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1157,7 +1104,7 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1170,12 +1117,7 @@ mod tests {
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1189,7 +1131,6 @@ mod tests {
             #[test]
             #[should_panic(expected = "SendError")]
             fn action_result_err_panics_if_network_closed() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1198,7 +1139,7 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1221,7 +1162,6 @@ mod tests {
 
             #[test]
             fn action_result_not_success_disconnects_and_ignores() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1230,7 +1170,7 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1247,12 +1187,7 @@ mod tests {
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
@@ -1266,7 +1201,6 @@ mod tests {
             #[test]
             #[should_panic(expected = "SendError")]
             fn action_result_not_success_panics_if_network_closed() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1275,7 +1209,7 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1302,7 +1236,6 @@ mod tests {
 
             #[test]
             fn action_result_success_sends_next_host_action() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans with an iterator with at least one value left.
@@ -1312,7 +1245,7 @@ mod tests {
                 let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1329,12 +1262,7 @@ mod tests {
                 };
                 fixture.send_from_network(report);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert!(matches!(
                     fixture.network.receiver.try_recv(),
@@ -1345,7 +1273,6 @@ mod tests {
             #[test]
             #[should_panic(expected = "SendError")]
             fn action_result_success_panics_if_network_closed() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
@@ -1354,7 +1281,7 @@ mod tests {
                     .insert(fixture.host.to_string(), VecDeque::new());
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1381,7 +1308,6 @@ mod tests {
 
             #[test]
             fn action_result_success_advances_to_next_plan() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Create a Plan with one Action left.
@@ -1406,7 +1332,7 @@ mod tests {
                 let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1424,26 +1350,20 @@ mod tests {
                 fixture.send_from_network(report);
 
                 // Run the code under test.
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
+
                 assert!(matches!(
                     fixture.network.receiver.try_recv(),
                     Ok(NetworkControlMessage::RunAction(_))
                 ));
-
                 assert_eq!(1, fixture.host_plans[fixture.host].len());
             }
 
             #[test]
             fn action_result_success_warns_if_host_not_found() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1461,12 +1381,7 @@ mod tests {
                 fixture.send_from_network(report);
 
                 // Run the code under test.
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(
                     Ok(LogEntry::Warning(format!(
@@ -1480,7 +1395,6 @@ mod tests {
 
             #[test]
             fn action_result_success_disconnects_host_if_no_more_actions() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Create a Plan with no Actions but with the right host.
@@ -1499,7 +1413,7 @@ mod tests {
                 let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1517,12 +1431,7 @@ mod tests {
                 fixture.send_from_network(report);
 
                 // Run the code under test.
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert!(matches!(
                     fixture.network.receiver.try_recv(),
@@ -1534,7 +1443,6 @@ mod tests {
 
             #[test]
             fn reports_done_if_host_plans_is_empty() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Create a Plan with no Actions but with the right host.
@@ -1553,7 +1461,7 @@ mod tests {
                 let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1571,12 +1479,7 @@ mod tests {
                 fixture.send_from_network(report);
 
                 // Run the code under test.
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 let logged_reports: Vec<_> = fixture.report_receiver.try_iter().collect();
                 assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
@@ -1591,7 +1494,6 @@ mod tests {
                 // the other tests in this section and directly calls process_report() after
                 // closing the UI.
 
-                use network::Report::*;
                 let mut fixture = Fixture::new();
 
                 // Create a Plan with no Actions but with the right host.
@@ -1610,7 +1512,7 @@ mod tests {
                 let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
                 assert!(old_queue.is_none());
 
-                let report = ActionResult {
+                let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
                     manifest_source: Some("manifest".to_string()),
                     manifest_name: "mname".to_string(),
@@ -1647,11 +1549,8 @@ mod tests {
             #[test]
             #[should_panic(expected = "Could not receive messages")]
             fn panics_if_network_disconnected() {
-                use network::Report::*;
                 let mut fixture = Fixture::new();
-
                 drop(fixture.network.sender);
-
                 fixture
                     .executor
                     ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
