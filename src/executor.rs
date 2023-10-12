@@ -598,6 +598,14 @@ mod tests {
                     host: "host",
                 }
             }
+
+            fn send_from_ui(&self, plan: Plan) {
+                self.ui.sender.try_send(ui::Message::RunPlan(plan)).unwrap();
+            }
+
+            fn send_from_network(&self, report: network::Report) {
+                self.network.sender.try_send(report).unwrap();
+            }
         }
 
         #[test]
@@ -606,16 +614,8 @@ mod tests {
             let (plan, _, _, _) = plan();
 
             // Send both UI and network messages.
-            fixture
-                .ui
-                .sender
-                .try_send(ui::Message::RunPlan(plan))
-                .unwrap();
-            fixture
-                .network
-                .sender
-                .try_send(network::Report::Connecting("host".into()))
-                .unwrap();
+            fixture.send_from_ui(plan);
+            fixture.send_from_network(network::Report::Connecting("host".into()));
 
             let _ = fixture
                 .executor
@@ -650,11 +650,7 @@ mod tests {
                 fixture
                     .ignored_hosts
                     .insert(plan.manifests[0].hosts[0].clone());
-                fixture
-                    .ui
-                    .sender
-                    .try_send(ui::Message::RunPlan(plan))
-                    .unwrap();
+                fixture.send_from_ui(plan);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -672,14 +668,12 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
-                // ui::Message for easier use.
+                // exactly one host.) Generate the Plan and clone the host.
                 let (plan, _, _, _) = plan();
                 let host = plan.hosts()[0].clone();
-                let message = ui::Message::RunPlan(plan);
 
                 // Prepare host_plans by asking the code under test to run a Plan.
-                fixture.ui.sender.try_send(message.clone()).unwrap();
+                fixture.send_from_ui(plan.clone());
                 assert_eq!(
                     RunStatus::Continue,
                     fixture
@@ -690,7 +684,7 @@ mod tests {
 
                 // Send the same Plan and run the code again. Verify that the queue for the Plan's
                 // host lengthened to 2.
-                fixture.ui.sender.try_send(message).unwrap();
+                fixture.send_from_ui(plan);
                 assert_eq!(
                     RunStatus::Continue,
                     fixture
@@ -705,14 +699,12 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
-                // ui::Message for easier use.
+                // exactly one host.) Generate the Plan and clone the host.
                 let (plan, _, _, _) = plan();
                 let host = plan.hosts()[0].clone();
-                let message = ui::Message::RunPlan(plan);
 
                 // Send the Plan and run the code under test.
-                fixture.ui.sender.try_send(message).unwrap();
+                fixture.send_from_ui(plan);
                 assert_eq!(
                     RunStatus::Continue,
                     fixture
@@ -747,11 +739,10 @@ mod tests {
                 let (mut plan, _, _, _) = plan();
                 plan.manifests.truncate(1);
                 plan.manifests[0].hosts = vec!["Existing 1".into(), "Existing 2".into()];
-                let message = ui::Message::RunPlan(plan.clone());
 
                 // Send the Plan and run the code under test to populate the two "existing" hosts.
                 // Verify invariants for testing sanity.
-                fixture.ui.sender.try_send(message).unwrap();
+                fixture.send_from_ui(plan.clone());
                 assert_eq!(
                     RunStatus::Continue,
                     fixture
@@ -762,15 +753,13 @@ mod tests {
 
                 // Override the hosts to intersperse two new entries. Send it to the code under
                 // test and run it again.
-                // Run the code under test.
                 plan.manifests[0].hosts = vec![
                     "Existing 1".into(),
                     "New 1".into(),
                     "Existing 2".into(),
                     "New 2".into(),
                 ];
-                let message = ui::Message::RunPlan(plan);
-                fixture.ui.sender.try_send(message).unwrap();
+                fixture.send_from_ui(plan);
                 assert_eq!(
                     RunStatus::Continue,
                     fixture
@@ -788,14 +777,12 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
-                // ui::Message for easier use.
+                // exactly one host.) Generate the Plan and clone the host.
                 let (plan, _, _, _) = plan();
                 let host = plan.hosts()[0].clone();
-                let message = ui::Message::RunPlan(plan);
 
                 // Prepare host_plans by asking the code under test to run a Plan.
-                fixture.ui.sender.try_send(message.clone()).unwrap();
+                fixture.send_from_ui(plan);
                 assert_eq!(
                     RunStatus::Continue,
                     fixture
@@ -898,7 +885,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 for report in &reports {
-                    fixture.network.sender.send(report.clone()).unwrap();
+                    fixture.send_from_network(report.clone());
                 }
 
                 for report in &reports {
@@ -920,7 +907,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 for report in &reports {
-                    fixture.network.sender.send(report.clone()).unwrap();
+                    fixture.send_from_network(report.clone());
                 }
 
                 for report in &reports {
@@ -941,7 +928,7 @@ mod tests {
 
                 // Send a report that will be forwarded to the UI.
                 let report = network::Report::Connecting("host".into());
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Close the UI.
                 drop(fixture.ui.receiver);
@@ -961,11 +948,7 @@ mod tests {
                 use network::Report::*;
                 let mut fixture = Fixture::new();
 
-                fixture
-                    .network
-                    .sender
-                    .send(Connecting("host".into()))
-                    .unwrap();
+                fixture.send_from_network(Connecting("host".into()));
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -980,11 +963,7 @@ mod tests {
                 use network::Report::*;
                 let mut fixture = Fixture::new();
 
-                fixture
-                    .network
-                    .sender
-                    .send(Connected("host".into()))
-                    .unwrap();
+                fixture.send_from_network(Connected("host".into()));
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1009,7 +988,7 @@ mod tests {
                         commands: vec!["pwd".to_string()],
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1034,7 +1013,7 @@ mod tests {
                     host: fixture.host.to_string(),
                     error: "error".to_string(),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1058,7 +1037,7 @@ mod tests {
                     host: fixture.host.to_string(),
                     error: "error".to_string(),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1094,7 +1073,7 @@ mod tests {
                     host: fixture.host.to_string(),
                     error: Some("error".to_string()),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1118,7 +1097,7 @@ mod tests {
                     host: fixture.host.to_string(),
                     error: Some("error".to_string()),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1154,7 +1133,7 @@ mod tests {
                     host: fixture.host.to_string(),
                     error: None,
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1189,7 +1168,7 @@ mod tests {
                     }),
                     result: Err("Disconnected".to_string()),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1230,7 +1209,7 @@ mod tests {
                     }),
                     result: Err("Disconnected".to_string()),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Close the network.
                 drop(fixture.network.receiver);
@@ -1266,7 +1245,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1311,7 +1290,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Close the network.
                 drop(fixture.network.receiver);
@@ -1348,7 +1327,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 assert_eq!(
                     RunStatus::Continue,
@@ -1390,7 +1369,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Close the network.
                 drop(fixture.network.receiver);
@@ -1442,7 +1421,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Run the code under test.
                 assert_eq!(
@@ -1479,7 +1458,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Run the code under test.
                 assert_eq!(
@@ -1535,7 +1514,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Run the code under test.
                 assert_eq!(
@@ -1589,7 +1568,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 // Run the code under test.
                 assert_eq!(
@@ -1646,7 +1625,7 @@ mod tests {
                         stderr: "".into(),
                     }),
                 };
-                fixture.network.sender.send(report).unwrap();
+                fixture.send_from_network(report);
 
                 drop(fixture.ui.receiver);
 
