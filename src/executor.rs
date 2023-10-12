@@ -32,7 +32,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 /// Coordinates message routing, plan execution, and program flow.
-#[allow(dead_code)]
 pub struct Executor {
     /// Channels for communicating to the UI.
     ///
@@ -82,9 +81,14 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// Indicates whether [Executor::run] should continue running or exit.
 #[derive(Clone, Debug, PartialEq)]
 enum RunStatus {
+    /// [Executor::run] should continue looping.
     Continue,
+
+    /// [Executor::run] should exit, yielding the value contained here. `Exit(Ok(()))` indicates
+    /// normal program shutdown.
     Exit(Result<(), Error>),
 }
 
@@ -135,7 +139,6 @@ impl Executor {
     ///
     /// Blocks until the program is getting ready to exit. You will probably wish to do something
     /// like spawn a thread to run this method.
-    #[allow(clippy::result_unit_err)]
     pub fn run(mut self) -> Result<(), Error> {
         let mut host_plans = HashMap::new();
         let mut ignored_hosts = HashSet::new();
@@ -176,7 +179,7 @@ impl Executor {
         ignored_hosts: &mut HashSet<String>,
     ) -> RunStatus {
         // For a detailed discussion of how this kind of event loop is designed, see
-        // crate::reference::network::Network::_run_once.
+        // the similar method in crate::reference::network::Network.
 
         // Prioritize messages from the UI, since they represent the user's intent.
         match self.ui.receiver.try_recv() {
@@ -188,7 +191,7 @@ impl Executor {
                 // The UI has closed or crashed. This means we exit. Whether we exit with success
                 // or failure depends on whether we were idle.
 
-                if host_plans.len() > 0 {
+                if !host_plans.is_empty() {
                     return RunStatus::Exit(Err(Error {
                         kind: ErrorKind::UiClosed,
                     }));
@@ -204,11 +207,12 @@ impl Executor {
         // First, pass any received reports to the logger and the UI.
         if let Ok(ref report) = maybe_report {
             let report = Report::NetworkReport(report.clone());
+
             // TODO Consider making this method return an error instead of panicking. Then add an
             // ErrorKind variant, e.g. LogDisconnected.
             self.logger.report(report.clone());
 
-            if let Err(_) = self.ui.sender.send(report) {
+            if self.ui.sender.send(report).is_err() {
                 return RunStatus::Exit(Err(Error {
                     kind: ErrorKind::UiClosed,
                 }));
@@ -224,6 +228,7 @@ impl Executor {
         RunStatus::Continue
     }
 
+    /// Private helper for processing a [ui::Message::RunPlan]. Used by [Self::_run_once].
     fn process_run_plan(
         &self,
         host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
@@ -237,23 +242,21 @@ impl Executor {
                 continue;
             }
 
+            // Generate the iterator for this host.
+            //
+            // If unwrap panics, then there's a bug somewhere in crate::core,
+            // because plan.hosts() returned a list that included this host.
+            let mut iter = plan.plan_for(&host).unwrap().into_iter();
+
             use std::collections::hash_map::Entry::*;
             match host_plans.entry(host.clone()) {
                 Occupied(mut entry) => {
                     // Existing. Simply enqueue. The host is already busy.
-                    //
-                    // If unwrap panics, then there's a bug somewhere in crate::core,
-                    // because plan.hosts() returned a list that included this host.
-                    let iter = plan.plan_for(&host).unwrap().into_iter();
                     entry.get_mut().push_back(iter);
                 }
                 Vacant(entry) => {
                     // New host. Send out the first HostAction, and then enqueue the
                     // iterator for future use.
-                    //
-                    // If unwrap panics, then there's a bug somewhere in crate::core,
-                    // because plan.hosts() returned a list that included this host.
-                    let mut iter = plan.plan_for(&host).unwrap().into_iter();
 
                     // If there isn't at least one HostAction in the iterator, then there's
                     // a bug somewhere in crate::core, because plan.hosts() returned a list
@@ -263,7 +266,7 @@ impl Executor {
                     // Inform the network so it can contact the host. If the channel to the
                     // network is closed, the program is crashing, so we need to panic.
                     let message = NetworkControlMessage::RunAction(host_action);
-                    self.network.sender.send(message).unwrap();
+                    self.network.sender.send(message).expect("network closed");
 
                     // Enqueue the iterator.
                     let mut queue = VecDeque::new();
@@ -292,10 +295,10 @@ impl Executor {
             Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
                 // This is just a status update. No actions needed.
             }
-            Ok(FailedToConnect { host, error })
+            Ok(FailedToConnect { host, .. })
             | Ok(Disconnected {
                 host,
-                error: Some(error),
+                error: Some(_),
             }) => {
                 // Proceed with the run, but assume that this host is inaccessible.
                 self.ignore_host(host_plans, ignored_hosts, &host);
@@ -329,7 +332,7 @@ impl Executor {
                         .sender
                         .send(NetworkControlMessage::Disconnect(host.clone()))
                         .unwrap();
-                    self.ignore_host(host_plans, ignored_hosts, &host);
+                    self.ignore_host(host_plans, ignored_hosts, host);
                 } else {
                     // Everything is fine. Send along the next HostAction. If there are no more
                     // HostActions for this host, then tell the network to disconnect and remove
@@ -412,6 +415,7 @@ impl Executor {
         None
     }
 
+    /// Clears a host from `host_plans` and adds it to `ignored_hosts`.
     fn ignore_host(
         &self,
         host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
@@ -432,6 +436,9 @@ impl Executor {
         ignored_hosts.insert(host.to_string());
     }
 
+    /// Retrieves the next action (if any) from the front iterator in a queue.
+    ///
+    /// Does not advance to the next iterator if the first returns None.
     fn next_action(queue: &mut VecDeque<HostPlanIntoIter>) -> Option<Arc<HostAction>> {
         match queue.front_mut() {
             Some(into_iter) => into_iter.next(),
@@ -551,16 +558,20 @@ mod tests {
         ///
         /// Meant to ease setup and help write DRY tests. There are so many values that
         /// many/most/all tests need that it just makes more sense to structure them rather than
-        /// initializing over half a dozen variables via copied code in each test. This wastes a
-        /// bit of CPU time, but the tests are still instantaneous.
+        /// initializing over half a dozen variables via copied code in each test. This fixture
+        /// wastes a bit of CPU time, but the tests are still instantaneous (at time of writing).
         struct Fixture {
-            /// The bare Receiver for executor::Report values that the logging system would read.
+            /// One of the channels to which the logging system would normally listen.
+            ///
+            /// Receives Reports from Executor.
             report_receiver: Receiver<LogEntry<Report>>,
 
-            /// The bare Receiver for arbitrary String values that the logging system would read.
+            /// One of the channels to which the logging system would normally listen.
+            ///
+            /// Receives raw Strings from Executor representing messages not covered by Reports.
             raw_receiver: Receiver<LogEntry<String>>,
 
-            /// The Executor that on which you'll call the code under test.
+            /// The Executor on which you'll call the code under test.
             executor: Executor,
 
             /// The channels that the UI uses to talk with the Executor.
@@ -575,17 +586,17 @@ mod tests {
             /// An empty collection suitable for passing to _run_once as ignored_hosts.
             ignored_hosts: HashSet<String>,
 
-            /// A common host to use when generating value; this is compile-time static.
+            /// A common host to use when generating values; this is compile-time static.
             host: &'static str,
         }
 
-        /// Generates a RunFixture and returns it.
         impl Fixture {
+            /// Generates a Fixture and returns it.
             fn new() -> Self {
                 let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
-                let (mut executor, ui, network) = Executor::new(logger);
-                let mut host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
-                let mut ignored_hosts: HashSet<String> = HashSet::new();
+                let (executor, ui, network) = Executor::new(logger);
+                let host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                let ignored_hosts: HashSet<String> = HashSet::new();
 
                 Fixture {
                     report_receiver,
@@ -599,14 +610,20 @@ mod tests {
                 }
             }
 
+            /// Simulate sending a Plan from the UI to Executor.
             fn send_from_ui(&self, plan: Plan) {
                 self.ui.sender.try_send(ui::Message::RunPlan(plan)).unwrap();
             }
 
+            /// Simulate sending a network::Report from the network to Executor.
             fn send_from_network(&self, report: network::Report) {
                 self.network.sender.try_send(report).unwrap();
             }
 
+            /// Assert that Executor has sent the network a particular message.
+            ///
+            /// This is meant for simple messages. For hard-to-construct messages, you might find
+            /// `assert!(matches!(...))` to be a better fit for your test code.
             fn network_expects(&self, expected: Result<NetworkControlMessage, TryRecvError>) {
                 let received = self.network.receiver.try_recv();
                 assert_eq!(
@@ -625,9 +642,17 @@ mod tests {
                 );
             }
 
+            /// Install a queue into `self.host_plans` under the key `self.host`.
+            ///
+            /// Panics if there was already a queue for that host.
             fn insert_host_queue(&mut self, queue: VecDeque<HostPlanIntoIter>) {
                 let old_queue = self.host_plans.insert(self.host.to_string(), queue);
                 assert!(old_queue.is_none());
+            }
+
+            /// Adds `self.host` to `self.ignored_hosts`. Panics if it was already there.
+            fn ignore_host(&mut self) {
+                assert!(self.ignored_hosts.insert(self.host.to_string()));
             }
         }
 
@@ -668,9 +693,8 @@ mod tests {
                 // Generate a Plan with one host and ignore it. Then send the Plan to Executor.
                 let (mut plan, _, _, _) = plan();
                 plan.manifests[0].hosts.truncate(1);
-                fixture
-                    .ignored_hosts
-                    .insert(plan.manifests[0].hosts[0].clone());
+                plan.manifests[0].hosts[0] = fixture.host.to_string();
+                fixture.ignore_host();
                 fixture.send_from_ui(plan);
 
                 fixture.runs_and_continues();
@@ -682,9 +706,6 @@ mod tests {
             #[test]
             fn enqueues_plan_for_existing_host_and_continues() {
                 let mut fixture = Fixture::new();
-
-                // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan and clone the host.
                 let (plan, _, _, _) = plan();
                 let host = plan.hosts()[0].clone();
 
@@ -703,9 +724,6 @@ mod tests {
             #[test]
             fn runs_action_and_enqueues_plan_for_new_host_and_continues() {
                 let mut fixture = Fixture::new();
-
-                // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan and clone the host.
                 let (plan, _, _, _) = plan();
                 let host = plan.hosts()[0].clone();
 
@@ -727,11 +745,23 @@ mod tests {
             }
 
             #[test]
+            #[should_panic(expected = "network closed")]
+            fn panics_when_adding_new_host_if_network_closed() {
+                let mut fixture = Fixture::new();
+                let (plan, _, _, _) = plan();
+                fixture.send_from_ui(plan);
+                drop(fixture.network.receiver);
+
+                fixture
+                    .executor
+                    ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
+            }
+
+            #[test]
             fn processes_all_hosts_and_continues() {
-                // We could simply add a second host to runs_action_and_enqueues_plan_for_new_host,
-                // but the better approach is to use this test to check a scenario where some hosts
-                // are existing and others are new. We'll have two hosts of each kind, and they'll
-                // alternate.
+                // We could simply add a second host to the appropriate test above, but the better
+                // approach is to use this test to check a scenario where some hosts are existing
+                // and others are new. We'll have two hosts of each kind, and they'll alternate.
 
                 let mut fixture = Fixture::new();
 
@@ -764,11 +794,8 @@ mod tests {
             }
 
             #[test]
-            fn exits_with_error_if_active() {
+            fn exits_with_error_when_ui_closed_if_active() {
                 let mut fixture = Fixture::new();
-
-                // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan and clone the host.
                 let (plan, _, _, _) = plan();
                 let host = plan.hosts()[0].clone();
 
@@ -791,15 +818,8 @@ mod tests {
             }
 
             #[test]
-            fn exits_ok_if_idle() {
+            fn exits_ok_when_ui_closed_if_idle() {
                 let mut fixture = Fixture::new();
-
-                // The Plan we'll use ships with at least one host. (At time of writing, it has
-                // exactly one host.) Generate the Plan, clone the host, and package the Plan in a
-                // ui::Message for easier use.
-                let (plan, _, _, _) = plan();
-                let host = plan.hosts()[0].clone();
-                let message = ui::Message::RunPlan(plan);
 
                 // Simulate the UI closing.
                 drop(fixture.ui);
@@ -876,7 +896,7 @@ mod tests {
                     fixture.send_from_network(report.clone());
                 }
 
-                for report in &reports {
+                for _ in &reports {
                     fixture.runs_and_continues();
                 }
 
@@ -893,7 +913,7 @@ mod tests {
                     fixture.send_from_network(report.clone());
                 }
 
-                for report in &reports {
+                for _ in &reports {
                     fixture.runs_and_continues();
                 }
 
@@ -901,7 +921,7 @@ mod tests {
             }
 
             #[test]
-            fn ui_closed_exits_with_error() {
+            fn exits_with_error_when_ui_closed() {
                 let mut fixture = Fixture::new();
 
                 // Send a report that will be forwarded to the UI.
@@ -1268,8 +1288,7 @@ mod tests {
                 let _ = done_iter.next();
 
                 // Create an iterator with one HostAction left.
-                let mut one_action_iter =
-                    one_action_plan.plan_for(fixture.host).unwrap().into_iter();
+                let one_action_iter = one_action_plan.plan_for(fixture.host).unwrap().into_iter();
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter, one_action_iter]);
@@ -1349,7 +1368,7 @@ mod tests {
                 manifest.include.clear();
 
                 // Create an iterator with no HostActions left, based on the above Plan.
-                let mut done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
+                let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter]);
@@ -1396,7 +1415,7 @@ mod tests {
                 manifest.include.clear();
 
                 // Create an iterator with no HostActions left, based on the above Plan.
-                let mut done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
+                let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter]);
@@ -1446,7 +1465,7 @@ mod tests {
                 manifest.include.clear();
 
                 // Create an iterator with no HostActions left, based on the above Plan.
-                let mut done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
+                let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter]);
