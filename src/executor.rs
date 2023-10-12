@@ -616,6 +616,11 @@ mod tests {
                         ._run_once(&mut self.host_plans, &mut self.ignored_hosts)
                 );
             }
+
+            fn insert_host_queue(&mut self, queue: VecDeque<HostPlanIntoIter>) {
+                let old_queue = self.host_plans.insert(self.host.to_string(), queue);
+                assert!(old_queue.is_none());
+            }
         }
 
         #[test]
@@ -662,12 +667,7 @@ mod tests {
                     .insert(plan.manifests[0].hosts[0].clone());
                 fixture.send_from_ui(plan);
 
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 assert_eq!(1, fixture.ignored_hosts.len());
                 assert_eq!(0, fixture.host_plans.len());
@@ -684,23 +684,13 @@ mod tests {
 
                 // Prepare host_plans by asking the code under test to run a Plan.
                 fixture.send_from_ui(plan.clone());
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
                 assert_eq!(1, fixture.host_plans[&host].len());
 
                 // Send the same Plan and run the code again. Verify that the queue for the Plan's
                 // host lengthened to 2.
                 fixture.send_from_ui(plan);
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
                 assert_eq!(2, fixture.host_plans[&host].len());
             }
 
@@ -715,12 +705,7 @@ mod tests {
 
                 // Send the Plan and run the code under test.
                 fixture.send_from_ui(plan);
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
 
                 // Verify that the network received the right message.
                 let ncm = fixture.network.receiver.try_recv();
@@ -753,12 +738,7 @@ mod tests {
                 // Send the Plan and run the code under test to populate the two "existing" hosts.
                 // Verify invariants for testing sanity.
                 fixture.send_from_ui(plan.clone());
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
                 assert_eq!(2, fixture.host_plans.len());
 
                 // Override the hosts to intersperse two new entries. Send it to the code under
@@ -770,12 +750,7 @@ mod tests {
                     "New 2".into(),
                 ];
                 fixture.send_from_ui(plan);
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
                 assert_eq!(4, fixture.host_plans.len());
 
                 // Verify that the network received 4 messages (rather than, say, 6).
@@ -793,12 +768,7 @@ mod tests {
 
                 // Prepare host_plans by asking the code under test to run a Plan.
                 fixture.send_from_ui(plan);
-                assert_eq!(
-                    RunStatus::Continue,
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                );
+                fixture.runs_and_continues();
                 assert_eq!(1, fixture.host_plans[&host].len());
 
                 // Simulate the UI closing.
@@ -980,11 +950,7 @@ mod tests {
             fn failed_to_connect_clears_and_ignores_host() {
                 let mut fixture = Fixture::new();
 
-                // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::FailedToConnect {
                     host: fixture.host.to_string(),
@@ -1029,10 +995,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::Disconnected {
                     host: fixture.host.to_string(),
@@ -1077,10 +1040,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::Disconnected {
                     host: fixture.host.to_string(),
@@ -1099,10 +1059,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1134,10 +1091,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1165,10 +1119,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1204,10 +1155,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1242,8 +1190,7 @@ mod tests {
                 let (mut plan, _, _, _) = plan();
                 plan.manifests[0].hosts = vec![fixture.host.to_string()];
                 let queue = VecDeque::from([plan.plan_for(fixture.host).unwrap().into_iter()]);
-                let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(queue);
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1276,10 +1223,7 @@ mod tests {
                 let mut fixture = Fixture::new();
 
                 // Pre-populate host_plans so there's an entry to clear.
-                let old_queue = fixture
-                    .host_plans
-                    .insert(fixture.host.to_string(), VecDeque::new());
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(VecDeque::new());
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1329,8 +1273,7 @@ mod tests {
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter, one_action_iter]);
-                let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(queue);
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1410,8 +1353,7 @@ mod tests {
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter]);
-                let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(queue);
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1458,8 +1400,7 @@ mod tests {
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter]);
-                let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(queue);
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
@@ -1509,8 +1450,7 @@ mod tests {
 
                 // Set up the test scenario.
                 let queue = VecDeque::from([done_iter]);
-                let old_queue = fixture.host_plans.insert(fixture.host.to_string(), queue);
-                assert!(old_queue.is_none());
+                fixture.insert_host_queue(queue);
 
                 let report = network::Report::ActionResult {
                     host: fixture.host.to_string(),
