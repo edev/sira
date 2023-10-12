@@ -607,6 +607,14 @@ mod tests {
                 self.network.sender.try_send(report).unwrap();
             }
 
+            fn network_expects(&self, expected: Result<NetworkControlMessage, TryRecvError>) {
+                let received = self.network.receiver.try_recv();
+                assert_eq!(
+                    expected, received,
+                    "Expected {expected:?} but received {received:?}"
+                );
+            }
+
             /// Calls _run_once, pulling arguments from the fixture itself, and asserts that it
             /// exits with RunStatus::Continue.
             fn runs_and_continues(&mut self) {
@@ -632,9 +640,7 @@ mod tests {
             fixture.send_from_ui(plan);
             fixture.send_from_network(network::Report::Connecting("host".into()));
 
-            let _ = fixture
-                .executor
-                ._run_once(&mut HashMap::new(), &mut HashSet::new());
+            fixture.runs_and_continues();
 
             // Verify that the UI message was retrieved and the network message was not.
             assert_eq!(
@@ -1079,10 +1085,7 @@ mod tests {
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
 
-                assert_eq!(
-                    Ok(NetworkControlMessage::Disconnect(fixture.host.into())),
-                    fixture.network.receiver.try_recv()
-                );
+                fixture.network_expects(Ok(NetworkControlMessage::Disconnect(fixture.host.into())));
             }
 
             #[test]
@@ -1143,10 +1146,7 @@ mod tests {
                 assert_eq!(0, fixture.host_plans.len());
                 assert!(fixture.ignored_hosts.contains(fixture.host));
 
-                assert_eq!(
-                    Ok(NetworkControlMessage::Disconnect(fixture.host.into())),
-                    fixture.network.receiver.try_recv()
-                );
+                fixture.network_expects(Ok(NetworkControlMessage::Disconnect(fixture.host.into())));
             }
 
             #[test]
