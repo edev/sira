@@ -100,7 +100,7 @@ pub struct Log {
 }
 
 impl Log {
-    /// For testing code that requires a Log, create a [Log] in isolation.
+    /// For testing code that requires a Log. Normally they come as part of a much larger package.
     #[cfg(test)]
     pub fn fixture() -> (Self, Receiver<LogEntry<String>>) {
         let (raw, receiver) = crossbeam::channel::unbounded();
