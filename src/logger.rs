@@ -133,7 +133,7 @@ impl Log {
 }
 
 /// Severity classifications for log entries.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LogEntry<E> {
     /// Just a status update; nothing's wrong.
     Notice(E),
@@ -201,7 +201,6 @@ pub struct LogReceiver<L: Logger> {
 }
 
 impl<L: Logger> LogReceiver<L> {
-    #[allow(unused_variables)]
     pub fn new(logger: L) -> (Self, Log, ExecutiveLog) {
         // Construct the base channels we need
         let (reporter, report_recv) = channel::unbounded();
@@ -279,35 +278,35 @@ impl<L: Logger> LogReceiver<L> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-
-    struct TestLogger {
-        reports: Vec<LogEntry<Report>>,
-        raw: Vec<LogEntry<String>>,
-    }
-
-    impl TestLogger {
-        fn new() -> Arc<Mutex<Self>> {
-            Arc::new(Mutex::new(Self {
-                reports: vec![],
-                raw: vec![],
-            }))
-        }
-    }
-
-    impl Logger for Arc<Mutex<TestLogger>> {
-        fn log_raw(&mut self, entry: LogEntry<String>) {
-            self.lock().unwrap().raw.push(entry);
-        }
-
-        fn log_report(&mut self, report: LogEntry<Report>) {
-            self.lock().unwrap().reports.push(report);
-        }
-    }
 
     mod log_receiver {
         use super::*;
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        struct TestLogger {
+            reports: Vec<LogEntry<Report>>,
+            raw: Vec<LogEntry<String>>,
+        }
+
+        impl TestLogger {
+            fn new() -> Arc<Mutex<Self>> {
+                Arc::new(Mutex::new(Self {
+                    reports: vec![],
+                    raw: vec![],
+                }))
+            }
+        }
+
+        impl Logger for Arc<Mutex<TestLogger>> {
+            fn log_raw(&mut self, entry: LogEntry<String>) {
+                self.lock().unwrap().raw.push(entry);
+            }
+
+            fn log_report(&mut self, report: LogEntry<Report>) {
+                self.lock().unwrap().reports.push(report);
+            }
+        }
 
         /// Spawns a thread with a LogReceiver<TestLogger>, runs your actions, joins the thread,
         /// and returns the TestLogger for you to inspect.
@@ -330,6 +329,30 @@ mod tests {
 
             // The caller really doesn't even need to know that we used an Arc<Mutex<_>>.
             Arc::into_inner(logger).unwrap().into_inner().unwrap()
+        }
+
+        mod new {
+            use super::*;
+
+            #[test]
+            fn works() {
+                // Verifies that the various return values are wired together correctly.
+
+                let (log_receiver, log, executive_log) = LogReceiver::new(TestLogger::new());
+
+                let raw = LogEntry::Notice("OK".to_string());
+                let report = LogEntry::Notice(Report::Done);
+
+                log.raw.try_send(raw.clone()).unwrap();
+                executive_log.raw.raw.try_send(raw.clone()).unwrap();
+                executive_log.reporter.try_send(report.clone()).unwrap();
+
+                let raw_entries: Vec<_> = log_receiver.raw.try_iter().collect();
+                let reports: Vec<_> = log_receiver.reporter.try_iter().collect();
+
+                assert_eq!(vec![raw.clone(), raw], raw_entries);
+                assert_eq!(vec![report], reports);
+            }
         }
 
         mod run {
