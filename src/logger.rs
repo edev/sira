@@ -7,11 +7,11 @@ use crate::executor::Executor;
 use crate::executor::Report;
 use crate::network;
 use crossbeam::channel::{self, Receiver, Select, Sender};
+use std::io::{self, Write};
 
 /// A logger for use only in [Executor] that can log [Report]s as well as bare messages.
 ///
 /// If sending fails, this type will failover to standard output and standard error automatically.
-#[allow(dead_code)]
 pub struct ExecutiveLog {
     reporter: Sender<LogEntry<Report>>,
     raw: Log,
@@ -19,9 +19,6 @@ pub struct ExecutiveLog {
 
 impl ExecutiveLog {
     // Returns an ExecutiveLog and the raw Receivers paired with the ExecutiveLog's Senders.
-    //
-    // This is for use by Executor's tests, so they don't need to inspect the internal states of
-    // types in this module that really aren't Executor's concern.
     #[cfg(test)]
     pub fn fixture() -> (
         ExecutiveLog,
@@ -94,7 +91,6 @@ impl ExecutiveLog {
 ///
 /// If sending fails, this type will failover to standard output and standard error automatically.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct Log {
     raw: Sender<LogEntry<String>>,
 }
@@ -107,28 +103,63 @@ impl Log {
         (Log { raw }, receiver)
     }
 
+    /// Sends a [LogEntry] to [Log::raw]. If that fails, prints it to a backup like stdout/stderr.
+    fn raw_send(&self, message: LogEntry<String>, mut backup: impl Write) {
+        if self.raw.try_send(message.clone()).is_err() {
+            // We don't rely on a Display implementation for LogEntry here, because log entries in
+            // a log file need to be a lot more verbose than on-screen messages. We just need very
+            // simple, brief, and easy-to-read formatting here.
+            let heading = match message {
+                LogEntry::Notice(_) => "Notice",
+                LogEntry::Warning(_) => "Warning",
+                LogEntry::Error(_) => "Error",
+                LogEntry::Fatal(_) => "Fatal",
+            };
+            let message = format!("{heading}: {}\n", message.message());
+
+            // Write to the backup logging mechanism. Deliberately discard any errors.
+            let _ = backup.write_all(message.as_bytes());
+        }
+    }
+
     /// Sends a raw, notice-level log message.
-    #[allow(unused_variables)]
     pub fn notice(&self, message: String) {
-        self.raw.send(LogEntry::Notice(message)).unwrap();
+        self._notice(message, io::stdout());
+    }
+
+    /// Dependency injection helper for testing.
+    fn _notice(&self, message: String, backup: impl Write) {
+        self.raw_send(LogEntry::Notice(message), backup);
     }
 
     /// Sends a raw, warning-level log message.
-    #[allow(unused_variables)]
     pub fn warning(&self, message: String) {
-        self.raw.send(LogEntry::Warning(message)).unwrap();
+        self._warning(message, io::stderr());
+    }
+
+    /// Dependency injection helper for testing.
+    fn _warning(&self, message: String, backup: impl Write) {
+        self.raw_send(LogEntry::Warning(message), backup);
     }
 
     /// Sends a raw, error-level log message.
-    #[allow(unused_variables)]
     pub fn error(&self, message: String) {
-        self.raw.send(LogEntry::Error(message)).unwrap();
+        self._error(message, io::stderr());
+    }
+
+    /// Dependency injection helper for testing.
+    fn _error(&self, message: String, backup: impl Write) {
+        self.raw_send(LogEntry::Error(message), backup);
     }
 
     /// Sends a raw, fatal-level log message.
-    #[allow(unused_variables)]
     pub fn fatal(&self, message: String) {
-        todo!();
+        self._fatal(message, io::stderr());
+    }
+
+    /// Dependency injection helper for testing.
+    fn _fatal(&self, message: String, backup: impl Write) {
+        self.raw_send(LogEntry::Fatal(message), backup);
     }
 }
 
@@ -188,7 +219,6 @@ pub trait Logger {
 
 /// Processes log messages from the rest of the program and passes them to a logging mechanism that
 /// can write logs, e.g. to disk.
-#[allow(dead_code)]
 pub struct LogReceiver<L: Logger> {
     /// Receives [Report] messages from [Executor], already encapsulated as [LogEntry] values.
     reporter: Receiver<LogEntry<Report>>,
@@ -278,6 +308,145 @@ impl<L: Logger> LogReceiver<L> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod executive_log {
+        use super::*;
+
+        // TODO Write system tests that capture stdout/stderr and verify that notice, warning,
+        // error, and fatal print to the correct backup streams. Do the same for those methods in
+        // Log as well.
+
+        mod notice {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (executive_log, _report, raw) = ExecutiveLog::fixture();
+                executive_log.notice(message.clone());
+                assert_eq!(Ok(LogEntry::Notice(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod warning {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (executive_log, _report, raw) = ExecutiveLog::fixture();
+                executive_log.warning(message.clone());
+                assert_eq!(Ok(LogEntry::Warning(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod error {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (executive_log, _report, raw) = ExecutiveLog::fixture();
+                executive_log.error(message.clone());
+                assert_eq!(Ok(LogEntry::Error(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod fatal {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (executive_log, _report, raw) = ExecutiveLog::fixture();
+                executive_log.fatal(message.clone());
+                assert_eq!(Ok(LogEntry::Fatal(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod report {
+            // TODO
+        }
+    }
+
+    mod log {
+        use super::*;
+
+        mod notice {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (log, raw) = Log::fixture();
+                log.notice(message.clone());
+                assert_eq!(Ok(LogEntry::Notice(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod warning {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (log, raw) = Log::fixture();
+                log.warning(message.clone());
+                assert_eq!(Ok(LogEntry::Warning(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod error {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (log, raw) = Log::fixture();
+                log.error(message.clone());
+                assert_eq!(Ok(LogEntry::Error(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod fatal {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let message = "Is this thing on?".to_string();
+                let (log, raw) = Log::fixture();
+                log.fatal(message.clone());
+                assert_eq!(Ok(LogEntry::Fatal(message.clone())), raw.try_recv());
+            }
+        }
+
+        mod raw_send {
+            use super::*;
+
+            // Both ExecutiveLog and Log's public APIs are under test, and those tests cover the
+            // happy path through this method. We only need to test failover.
+
+            #[test]
+            fn fails_over_to_stderr() {
+                let message = "Is this thing on?".to_string();
+                let (log, raw) = Log::fixture();
+                drop(raw);
+
+                let mut buffer: Vec<u8> = vec![];
+                log.raw_send(LogEntry::Notice(message.clone()), &mut buffer);
+                log.raw_send(LogEntry::Warning(message.clone()), &mut buffer);
+                log.raw_send(LogEntry::Error(message.clone()), &mut buffer);
+                log.raw_send(LogEntry::Fatal(message.clone()), &mut buffer);
+
+                let expected = "\
+                    Notice: Is this thing on?\n\
+                    Warning: Is this thing on?\n\
+                    Error: Is this thing on?\n\
+                    Fatal: Is this thing on?\n";
+                assert_eq!(expected, String::from_utf8(buffer).unwrap());
+            }
+        }
+    }
 
     mod log_receiver {
         use super::*;
