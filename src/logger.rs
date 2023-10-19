@@ -34,34 +34,47 @@ impl ExecutiveLog {
         (executive_log, report_recv, raw_recv)
     }
 
-    /// Logs a [Report] messaage. Automatically classifies it as some [LogEntry] variant based on
+    /// Logs a [Report] message. Automatically classifies it as some [LogEntry] variant based on
     /// message type and contents.
     pub fn report(&self, report: Report) {
-        // TODO Test me.
         use network::Report::*;
         use LogEntry::*;
 
         match report {
-            Report::Done => self.reporter.send(Notice(report)).unwrap(),
+            // End of run. Not necessarily success, but no particular meaning, for our purposes.
+            Report::Done => self.send_report(Notice(report)),
+
             Report::NetworkReport(ref network_report) => match network_report {
-                // network::Report implements Display, but we need to classify report before we can
-                // stringify and dispatch it.
-                FailedToConnect { .. } | Disconnected { .. } => {
-                    self.reporter.send(Error(report)).unwrap();
+                // Connection issue.
+                FailedToConnect { .. } | Disconnected { error: Some(_), .. } => {
+                    self.send_report(Error(report));
                 }
-                ActionResult { ref result, .. } => {
-                    if result.is_err() {
-                        self.reporter.send(Error(report)).unwrap();
-                    } else if result.as_ref().unwrap().status.success() {
-                        self.reporter.send(Notice(report)).unwrap();
-                    } else {
-                        // We have a Result::Ok(Output), but Output indicates an error.
-                        self.reporter.send(Error(report)).unwrap();
-                    }
+
+                // An ActionResult with all indicators reading success.
+                ActionResult {
+                    result: Ok(ref output),
+                    ..
+                } if output.status.success() => {
+                    self.send_report(Notice(report));
                 }
-                _ => self.reporter.send(Notice(report)).unwrap(),
+
+                // Any other ActionResult indicates a problem.
+                ActionResult { .. } => {
+                    self.send_report(Error(report));
+                }
+
+                // Anything else has no particular meaning, for our purposes.
+                _ => self.send_report(Notice(report)),
             },
         }
+    }
+
+    /// Sends a [Report], classified as a [LogEntry], via [Self::reporter].
+    ///
+    /// On failure, silently returns without error. The UI should have been sent the same [Report],
+    /// so printing it to the screen would be redundant and might break the UI for no real benefit.
+    fn send_report(&self, report: LogEntry<Report>) {
+        let _ = self.reporter.send(report);
     }
 
     /// Wraps [Log::notice()].
@@ -104,7 +117,7 @@ impl Log {
     }
 
     /// Sends a [LogEntry] to [Log::raw]. If that fails, prints it to a backup like stdout/stderr.
-    fn raw_send(&self, message: LogEntry<String>, mut backup: impl Write) {
+    fn send_raw(&self, message: LogEntry<String>, mut backup: impl Write) {
         if self.raw.try_send(message.clone()).is_err() {
             // We don't rely on a Display implementation for LogEntry here, because log entries in
             // a log file need to be a lot more verbose than on-screen messages. We just need very
@@ -129,7 +142,7 @@ impl Log {
 
     /// Dependency injection helper for testing.
     fn _notice(&self, message: String, backup: impl Write) {
-        self.raw_send(LogEntry::Notice(message), backup);
+        self.send_raw(LogEntry::Notice(message), backup);
     }
 
     /// Sends a raw, warning-level log message.
@@ -139,7 +152,7 @@ impl Log {
 
     /// Dependency injection helper for testing.
     fn _warning(&self, message: String, backup: impl Write) {
-        self.raw_send(LogEntry::Warning(message), backup);
+        self.send_raw(LogEntry::Warning(message), backup);
     }
 
     /// Sends a raw, error-level log message.
@@ -149,7 +162,7 @@ impl Log {
 
     /// Dependency injection helper for testing.
     fn _error(&self, message: String, backup: impl Write) {
-        self.raw_send(LogEntry::Error(message), backup);
+        self.send_raw(LogEntry::Error(message), backup);
     }
 
     /// Sends a raw, fatal-level log message.
@@ -159,7 +172,7 @@ impl Log {
 
     /// Dependency injection helper for testing.
     fn _fatal(&self, message: String, backup: impl Write) {
-        self.raw_send(LogEntry::Fatal(message), backup);
+        self.send_raw(LogEntry::Fatal(message), backup);
     }
 }
 
@@ -308,6 +321,10 @@ impl<L: Logger> LogReceiver<L> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::Action;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{ExitStatus, Output};
+    use std::sync::Arc;
 
     mod executive_log {
         use super::*;
@@ -365,7 +382,155 @@ mod tests {
         }
 
         mod report {
-            // TODO
+            use super::*;
+
+            #[test]
+            fn continues_silently_if_reporter_closed() {
+                // We don't have a great way to check for the absence of messages printed to
+                // stdout/stderr. This test verifies what it can: that there's no panic and that
+                // nothing is printed to the raw Receiver.
+
+                let (executive_log, report, raw) = ExecutiveLog::fixture();
+                drop(report);
+                executive_log.report(Report::Done);
+                assert_eq!(0, raw.try_iter().count());
+            }
+
+            #[test]
+            fn done_sends_notice() {
+                let (executive_log, report, _raw) = ExecutiveLog::fixture();
+                executive_log.report(Report::Done);
+                assert_eq!(Ok(LogEntry::Notice(Report::Done)), report.try_recv());
+            }
+
+            #[test]
+            fn network_reports_map_correctly() {
+                use network::Report::*;
+
+                // Augment ExecutiveLog with a quick DSL for classifying network reports.
+                impl ExecutiveLog {
+                    fn expect_notice(
+                        &self,
+                        receiver: &Receiver<LogEntry<Report>>,
+                        report: network::Report,
+                    ) {
+                        self.report(Report::NetworkReport(report.clone()));
+                        assert_eq!(
+                            Ok(LogEntry::Notice(Report::NetworkReport(report))),
+                            receiver.try_recv()
+                        );
+                    }
+
+                    fn expect_error(
+                        &self,
+                        receiver: &Receiver<LogEntry<Report>>,
+                        report: network::Report,
+                    ) {
+                        self.report(Report::NetworkReport(report.clone()));
+                        assert_eq!(
+                            Ok(LogEntry::Error(Report::NetworkReport(report))),
+                            receiver.try_recv()
+                        );
+                    }
+                }
+
+                let (log, report, _raw) = ExecutiveLog::fixture();
+
+                log.expect_notice(&report, Connecting("host".into()));
+
+                log.expect_notice(&report, Connected("host".into()));
+
+                log.expect_notice(
+                    &report,
+                    RunningAction {
+                        host: "host".to_string(),
+                        manifest_source: Some("manifest".to_string()),
+                        manifest_name: "mname".to_string(),
+                        task_source: Some("task".to_string()),
+                        task_name: "tname".to_string(),
+                        action: Arc::new(Action::Shell {
+                            commands: vec!["pwd".to_string()],
+                        }),
+                    },
+                );
+
+                log.expect_error(
+                    &report,
+                    FailedToConnect {
+                        host: "host".to_string(),
+                        error: "error".to_string(),
+                    },
+                );
+
+                log.expect_error(
+                    &report,
+                    Disconnected {
+                        host: "host".to_string(),
+                        error: Some("error".to_string()),
+                    },
+                );
+
+                log.expect_notice(
+                    &report,
+                    Disconnected {
+                        host: "host".to_string(),
+                        error: None,
+                    },
+                );
+
+                log.expect_notice(
+                    &report,
+                    ActionResult {
+                        host: "host".to_string(),
+                        manifest_source: Some("manifest".to_string()),
+                        manifest_name: "mname".to_string(),
+                        task_source: Some("task".to_string()),
+                        task_name: "tname".to_string(),
+                        action: Arc::new(Action::Shell {
+                            commands: vec!["pwd".to_string()],
+                        }),
+                        result: Ok(Output {
+                            status: ExitStatus::from_raw(0),
+                            stdout: "Success".into(),
+                            stderr: "".into(),
+                        }),
+                    },
+                );
+
+                log.expect_error(
+                    &report,
+                    ActionResult {
+                        host: "host".to_string(),
+                        manifest_source: Some("manifest".to_string()),
+                        manifest_name: "mname".to_string(),
+                        task_source: Some("task".to_string()),
+                        task_name: "tname".to_string(),
+                        action: Arc::new(Action::Shell {
+                            commands: vec!["pwd".to_string()],
+                        }),
+                        result: Ok(Output {
+                            status: ExitStatus::from_raw(1),
+                            stdout: "".into(),
+                            stderr: "Failure".into(),
+                        }),
+                    },
+                );
+
+                log.expect_error(
+                    &report,
+                    ActionResult {
+                        host: "host".to_string(),
+                        manifest_source: Some("manifest".to_string()),
+                        manifest_name: "mname".to_string(),
+                        task_source: Some("task".to_string()),
+                        task_name: "tname".to_string(),
+                        action: Arc::new(Action::Shell {
+                            commands: vec!["pwd".to_string()],
+                        }),
+                        result: Err("Could not connect to host".into()),
+                    },
+                );
+            }
         }
     }
 
@@ -420,7 +585,7 @@ mod tests {
             }
         }
 
-        mod raw_send {
+        mod send_raw {
             use super::*;
 
             // Both ExecutiveLog and Log's public APIs are under test, and those tests cover the
@@ -433,10 +598,10 @@ mod tests {
                 drop(raw);
 
                 let mut buffer: Vec<u8> = vec![];
-                log.raw_send(LogEntry::Notice(message.clone()), &mut buffer);
-                log.raw_send(LogEntry::Warning(message.clone()), &mut buffer);
-                log.raw_send(LogEntry::Error(message.clone()), &mut buffer);
-                log.raw_send(LogEntry::Fatal(message.clone()), &mut buffer);
+                log.send_raw(LogEntry::Notice(message.clone()), &mut buffer);
+                log.send_raw(LogEntry::Warning(message.clone()), &mut buffer);
+                log.send_raw(LogEntry::Error(message.clone()), &mut buffer);
+                log.send_raw(LogEntry::Fatal(message.clone()), &mut buffer);
 
                 let expected = "\
                     Notice: Is this thing on?\n\
