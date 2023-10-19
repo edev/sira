@@ -1,3 +1,3 @@
 //! Reference [crate::logger::Logger] implementations.
 
-pub mod basic;
+pub mod standard;
