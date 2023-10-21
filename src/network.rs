@@ -83,6 +83,21 @@ pub enum Report {
     },
 }
 
+impl Report {
+    /// Returns the host name from the [Report].
+    pub fn host(&self) -> &str {
+        use Report::*;
+        match self {
+            Connecting(host) => host,
+            Connected(host) => host,
+            FailedToConnect { host, .. } => host,
+            Disconnected { host, .. } => host,
+            RunningAction { host, .. } => host,
+            ActionResult { host, .. } => host,
+        }
+    }
+}
+
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Report::*;
@@ -159,11 +174,87 @@ impl fmt::Display for Report {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
+
+    pub mod fixtures {
+        use super::*;
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::ExitStatus;
+        use std::process::Output;
+
+        /// Returns reports of all types in a reasonable order and with reasonable values.
+        pub fn reports() -> Vec<Report> {
+            use Report::*;
+            vec![
+                Connecting("host".into()),
+                Connected("host".into()),
+                RunningAction {
+                    host: "host".to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                },
+                FailedToConnect {
+                    host: "host".to_string(),
+                    error: "error".to_string(),
+                },
+                Disconnected {
+                    host: "host".to_string(),
+                    error: Some("error".to_string()),
+                },
+                Disconnected {
+                    host: "host".to_string(),
+                    error: None,
+                },
+                ActionResult {
+                    // We must use a different host name here so we aren't sending a message
+                    // from an ignored host (e.g. within Executor).
+                    host: "other_host".to_string(),
+                    manifest_source: Some("manifest".to_string()),
+                    manifest_name: "mname".to_string(),
+                    task_source: Some("task".to_string()),
+                    task_name: "tname".to_string(),
+                    action: Arc::new(Action::Shell {
+                        commands: vec!["pwd".to_string()],
+                    }),
+                    result: Ok(Output {
+                        status: ExitStatus::from_raw(0),
+                        stdout: "Success".into(),
+                        stderr: "".into(),
+                    }),
+                },
+            ]
+        }
+    }
 
     mod report {
         use super::*;
+
+        mod host {
+            use super::*;
+            use fixtures::reports;
+
+            #[test]
+            fn works() {
+                for report in reports() {
+                    if let Report::ActionResult {
+                        host: ref expected, ..
+                    } = report
+                    {
+                        // Host is different for this specific generated report, for compatibility
+                        // with other tests.
+                        assert_eq!(expected, report.host());
+                    } else {
+                        assert_eq!("host", report.host());
+                    }
+                }
+            }
+        }
 
         mod display {
             use super::*;

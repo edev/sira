@@ -7,6 +7,7 @@ use crate::executor::Executor;
 use crate::executor::Report;
 use crate::network;
 use crossbeam::channel::{self, Receiver, Select, Sender};
+use std::fmt::{self, Display, Formatter};
 use std::io::{self, Write};
 
 /// A logger for use only in [Executor] that can log [Report]s as well as bare messages.
@@ -205,6 +206,35 @@ impl<E> LogEntry<E> {
             Error(e) => e,
             Fatal(e) => e,
         }
+    }
+
+    /// Returns a mutable reference to the message inside the [LogEntry].
+    pub fn message_mut(&mut self) -> &mut E {
+        use LogEntry::*;
+        match self {
+            Notice(e) => e,
+            Warning(e) => e,
+            Error(e) => e,
+            Fatal(e) => e,
+        }
+    }
+}
+
+impl<E: Display> Display for LogEntry<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let time = chrono::offset::Local::now();
+
+        use LogEntry::*;
+        let level = match self {
+            Notice(_) => "Notice",
+            Warning(_) => "Warning",
+            Error(_) => "Error",
+            Fatal(_) => "Fatal",
+        };
+
+        let message = self.message();
+
+        writeln!(f, "{time} {level}: {message}")
     }
 }
 
@@ -609,6 +639,28 @@ mod tests {
                     Error: Is this thing on?\n\
                     Fatal: Is this thing on?\n";
                 assert_eq!(expected, String::from_utf8(buffer).unwrap());
+            }
+        }
+    }
+
+    mod log_entry {
+        use super::*;
+
+        mod display {
+            use super::*;
+            use regex::Regex;
+
+            #[test]
+            fn works() {
+                let expected =
+                    Regex::new(r"\A\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ .*? Fatal: boo\n\z")
+                        .unwrap();
+                let actual = format!("{}", LogEntry::Fatal("boo"));
+
+                assert!(
+                    expected.is_match(&actual),
+                    "Did not match expected pattern: {actual}"
+                );
             }
         }
     }
