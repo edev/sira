@@ -183,7 +183,6 @@ mod tests {
     use std::sync::Arc;
 
     mod fixtures {
-        use super::*;
         use tempfile::TempDir;
 
         pub fn tempdir() -> TempDir {
