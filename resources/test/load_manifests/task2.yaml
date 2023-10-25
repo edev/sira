@@ -4,5 +4,5 @@ actions:
   - shell:
     - snap install $snaps
 vars:
-  snaps: >
+  snaps: >-
     discord

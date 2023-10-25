@@ -5,7 +5,7 @@ actions:
   - shell:
     - apt install -y $packages
 vars:
-  packages: >
+  packages: >-
     aptitude
     build-essential
     exa
