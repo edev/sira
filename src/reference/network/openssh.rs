@@ -144,9 +144,17 @@ impl TestableClientThread {
                     .sender
                     .send(Report::RunningAction {
                         host: self.host.clone(),
-                        manifest_source: host_action.manifest().source.clone(),
+                        manifest_source: host_action
+                            .manifest()
+                            .source
+                            .clone()
+                            .map(|s| s.to_string_lossy().to_string()),
                         manifest_name: host_action.manifest().name.to_string(),
-                        task_source: host_action.task().source.clone(),
+                        task_source: host_action
+                            .task()
+                            .source
+                            .clone()
+                            .map(|s| s.to_string_lossy().to_string()),
                         task_name: host_action.task().name.to_string(),
                         action: Arc::new(host_action.action().clone()),
                     })
@@ -196,9 +204,17 @@ impl TestableClientThread {
                     .sender
                     .send(Report::ActionResult {
                         host: self.host.clone(),
-                        manifest_source: host_action.manifest().source.clone(),
+                        manifest_source: host_action
+                            .manifest()
+                            .source
+                            .clone()
+                            .map(|s| s.to_string_lossy().to_string()),
                         manifest_name: host_action.manifest().name.to_string(),
-                        task_source: host_action.task().source.clone(),
+                        task_source: host_action
+                            .task()
+                            .source
+                            .clone()
+                            .map(|s| s.to_string_lossy().to_string()),
                         task_name: host_action.task().name.to_string(),
                         action: Arc::new(host_action.action().clone()),
                         result: output.map_err(|e| e.to_string()),
@@ -354,7 +370,9 @@ mod tests {
     use crate::executor;
     use anyhow::bail;
     use std::os::unix::process::ExitStatusExt;
+    use std::path::PathBuf;
     use std::process::ExitStatus;
+    use std::str::FromStr;
 
     /// Newtype for [KnownHosts] that supports PartialEq.
     #[derive(Clone, Debug, PartialEq)]
@@ -742,9 +760,17 @@ mod tests {
                         action,
                     } => {
                         assert_eq!(client.host, host);
-                        assert_eq!(manifest.source, manifest_source);
+                        assert_eq!(
+                            manifest.source,
+                            manifest_source
+                                .as_ref()
+                                .map(|s| PathBuf::from_str(s).unwrap()),
+                        );
                         assert_eq!(manifest.name, manifest_name);
-                        assert_eq!(manifest.include[0].source, task_source);
+                        assert_eq!(
+                            manifest.include[0].source,
+                            task_source.as_ref().map(|s| PathBuf::from_str(s).unwrap()),
+                        );
                         assert_eq!(manifest.include[0].name, task_name);
                         assert_eq!(&manifest.include[0].actions[0], action.deref());
                     }
@@ -883,9 +909,17 @@ mod tests {
                         result,
                     } => {
                         assert_eq!(client.host, host);
-                        assert_eq!(manifest.source, manifest_source);
+                        assert_eq!(
+                            manifest.source,
+                            manifest_source
+                                .as_ref()
+                                .map(|s| PathBuf::from_str(s).unwrap()),
+                        );
                         assert_eq!(manifest.name, manifest_name);
-                        assert_eq!(manifest.include[0].source, task_source);
+                        assert_eq!(
+                            manifest.include[0].source,
+                            task_source.as_ref().map(|s| PathBuf::from_str(s).unwrap()),
+                        );
                         assert_eq!(manifest.include[0].name, task_name);
                         assert_eq!(action, action);
                         assert_eq!(

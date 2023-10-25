@@ -9,18 +9,19 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Deserializer;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Loads [Manifest] values from a manifest file.
-pub fn load_manifests(source: String) -> anyhow::Result<Vec<Manifest>> {
+pub fn load_manifests(source: impl AsRef<Path>) -> anyhow::Result<Vec<Manifest>> {
     let mut manifests = vec![];
-    let reader = BufReader::new(File::open(&source)?);
+    let reader = BufReader::new(File::open(source.as_ref())?);
 
     // Strip the file name from source to create the base path. Included task files with relative
     // paths will be relative to this base path.
-    let base_path = Path::new(&source).parent().ok_or(anyhow!(
-        "could not compute parent directory for path: {source}"
+    let base_path = source.as_ref().parent().ok_or(anyhow!(
+        "could not compute parent directory for path: {:?}",
+        source.as_ref(),
     ))?;
 
     for document in Deserializer::from_reader(reader) {
@@ -28,7 +29,7 @@ pub fn load_manifests(source: String) -> anyhow::Result<Vec<Manifest>> {
         let include = load_includes(base_path, manifest_file.include)?;
 
         let manifest = Manifest {
-            source: Some(source.clone()),
+            source: Some(source.as_ref().to_path_buf()),
             name: manifest_file.name,
             hosts: manifest_file.hosts,
             include,
@@ -55,15 +56,11 @@ fn load_includes(base_path: &Path, includes: Vec<String>) -> anyhow::Result<Vec<
 ///
 /// This is a private method meant for use by [load_manifests].
 fn load_tasks(source: impl AsRef<Path>) -> anyhow::Result<Vec<Task>> {
-    // This should be guaranteed lossless, since there should be no way for non-Unicode bytes to
-    // get into the string.
-    let source_string = source.as_ref().to_string_lossy().to_string();
-
     let mut tasks = vec![];
     let reader = BufReader::new(File::open(&source)?);
     for document in Deserializer::from_reader(reader) {
         let mut task = Task::deserialize(document)?;
-        task.source = Some(source_string.clone());
+        task.source = Some(source.as_ref().to_path_buf());
         tasks.push(task);
     }
     Ok(tasks)
@@ -83,7 +80,7 @@ pub struct Manifest {
     /// there is currently no standard value to place here, because these are not intended
     /// use cases for Sira at this time.
     #[serde(skip)]
-    pub source: Option<String>,
+    pub source: Option<PathBuf>,
 
     /// The [Manifest]'s name. Used for informational, logging, and debugging purposes.
     pub name: String,
@@ -324,21 +321,15 @@ mod tests {
 
         #[test]
         fn works() {
-            // In this test, we need to construct a PathBuf, turn it into a String, and then let it
-            // get turned back into a PathBuf inside the code under test. However, the expectation
-            // is that production code will read `source` from a user-provided String, e.g. stdin,
-            // a command-line argument, or a configuration file.
             let source = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("resources/test/load_manifests/manifest1.yaml");
-            let manifests = load_manifests(source.to_string_lossy().to_string()).unwrap();
+            let manifests = load_manifests(source).unwrap();
 
             let expected = vec![
                 Manifest {
                     source: Some(
                         Path::new(env!("CARGO_MANIFEST_DIR"))
-                            .join("resources/test/load_manifests/manifest1.yaml")
-                            .to_string_lossy()
-                            .to_string(),
+                            .join("resources/test/load_manifests/manifest1.yaml"),
                     ),
                     name: "desktops".to_owned(),
                     hosts: vec!["t470".to_owned(), "zen3".to_owned()],
@@ -346,9 +337,7 @@ mod tests {
                         Task {
                             source: Some(
                                 Path::new(env!("CARGO_MANIFEST_DIR"))
-                                    .join("resources/test/load_manifests/task1.yaml")
-                                    .to_string_lossy()
-                                    .to_string(),
+                                    .join("resources/test/load_manifests/task1.yaml"),
                             ),
                             name: "apt install".to_owned(),
                             user: "root".to_owned(),
@@ -364,9 +353,7 @@ mod tests {
                         Task {
                             source: Some(
                                 Path::new(env!("CARGO_MANIFEST_DIR"))
-                                    .join("resources/test/load_manifests/task2.yaml")
-                                    .to_string_lossy()
-                                    .to_string(),
+                                    .join("resources/test/load_manifests/task2.yaml"),
                             ),
                             name: "snap install".to_owned(),
                             user: "root".to_owned(),
@@ -383,18 +370,14 @@ mod tests {
                 Manifest {
                     source: Some(
                         Path::new(env!("CARGO_MANIFEST_DIR"))
-                            .join("resources/test/load_manifests/manifest1.yaml")
-                            .to_string_lossy()
-                            .to_string(),
+                            .join("resources/test/load_manifests/manifest1.yaml"),
                     ),
                     name: "t470".to_owned(),
                     hosts: vec!["t470".to_owned()],
                     include: vec![Task {
                         source: Some(
                             Path::new(env!("CARGO_MANIFEST_DIR"))
-                                .join("resources/test/load_manifests/t470.yaml")
-                                .to_string_lossy()
-                                .to_string(),
+                                .join("resources/test/load_manifests/t470.yaml"),
                         ),
                         name: "set host name".to_owned(),
                         user: "root".to_owned(),
@@ -406,18 +389,14 @@ mod tests {
                 Manifest {
                     source: Some(
                         Path::new(env!("CARGO_MANIFEST_DIR"))
-                            .join("resources/test/load_manifests/manifest1.yaml")
-                            .to_string_lossy()
-                            .to_string(),
+                            .join("resources/test/load_manifests/manifest1.yaml"),
                     ),
                     name: "zen3".to_owned(),
                     hosts: vec!["zen3".to_owned()],
                     include: vec![Task {
                         source: Some(
                             Path::new(env!("CARGO_MANIFEST_DIR"))
-                                .join("resources/test/load_manifests/zen3.yaml")
-                                .to_string_lossy()
-                                .to_string(),
+                                .join("resources/test/load_manifests/zen3.yaml"),
                         ),
                         name: "set host name".to_owned(),
                         user: "root".to_owned(),
@@ -431,6 +410,7 @@ mod tests {
             assert_eq!(expected, manifests);
         }
     }
+
     mod manifest {
         use super::*;
 

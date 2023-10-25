@@ -27,6 +27,12 @@ use std::sync::Arc;
 pub type ChannelPair = executor::ChannelPair<Report, NetworkControlMessage>;
 
 /// Messages that a network module can send to [Executor].
+///
+/// # Non-Unicode paths
+///
+/// Some variants include paths; these paths have undergone lossy conversion to [String]s. This
+/// helps ensure that no non-Unicode bytes get written to log files or the UI, as these are the
+/// primary destinations for this enum.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Report {
     /// The network module is about to try connecting to the specified host.

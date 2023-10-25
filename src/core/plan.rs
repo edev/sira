@@ -3,7 +3,7 @@
 #[cfg(doc)]
 use crate::core::action::Action;
 use crate::core::action::HostAction;
-use crate::core::manifest::{Manifest, TaskIntoIter, TaskIter};
+use crate::core::manifest::{self, Manifest, TaskIntoIter, TaskIter};
 #[cfg(doc)]
 use crate::core::task::Task;
 use std::collections::BTreeSet;
@@ -34,11 +34,13 @@ impl Plan {
     ///
     /// This function doesn't actually know how to parse; it simply calls
     /// [crate::core::manifest::load_manifests] for each file.
-    ///
-    /// The return type should be a Result<Plan, Error>, but I haven't defined the error yet.
     #[allow(unused_variables)]
     pub fn from_manifest_files(files: &[impl AsRef<Path>]) -> anyhow::Result<Self> {
-        todo!()
+        let mut manifests = vec![];
+        for file in files {
+            manifests.extend(manifest::load_manifests(file)?);
+        }
+        Ok(Plan { manifests })
     }
 
     /// Returns a list of hosts involved in this `Plan` in alphabetical order.
@@ -211,10 +213,142 @@ impl<'p> IntoIterator for HostPlan<'p> {
 #[cfg(test)]
 mod tests {
     use super::super::fixtures::plan;
+    use super::super::{Action, Manifest, Task};
     use super::*;
+    use indexmap::IndexMap;
 
     mod plan {
         use super::*;
+
+        // from_manifest_files surfaces any errors it encounters, and all the complex work it does
+        // is through code that's already under test elsewhere, so we only have to test the happy
+        // path.
+        mod from_manifest_files {
+            use super::*;
+
+            #[test]
+            fn works() {
+                let manifest1 = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("resources/test/load_manifests/manifest1.yaml");
+                let manifest2 = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("resources/test/load_manifests/manifest2.yaml");
+                let manifests = [manifest1, manifest2];
+                let manifests = Plan::from_manifest_files(&manifests).unwrap();
+
+                let expected = Plan {
+                    manifests: vec![
+                        Manifest {
+                            source: Some(
+                                Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("resources/test/load_manifests/manifest1.yaml"),
+                            ),
+                            name: "desktops".to_owned(),
+                            hosts: vec!["t470".to_owned(), "zen3".to_owned()],
+                            include: vec![
+                                Task {
+                                    source: Some(
+                                        Path::new(env!("CARGO_MANIFEST_DIR"))
+                                            .join("resources/test/load_manifests/task1.yaml"),
+                                    ),
+                                    name: "apt install".to_owned(),
+                                    user: "root".to_owned(),
+                                    actions: vec![Action::Shell(vec![
+                                        "apt install -y $packages".to_owned()
+                                    ])],
+                                    vars: [(
+                                        "packages".to_owned(),
+                                        "aptitude build-essential exa".to_owned(),
+                                    )]
+                                    .into(),
+                                },
+                                Task {
+                                    source: Some(
+                                        Path::new(env!("CARGO_MANIFEST_DIR"))
+                                            .join("resources/test/load_manifests/task2.yaml"),
+                                    ),
+                                    name: "snap install".to_owned(),
+                                    user: "root".to_owned(),
+                                    actions: vec![Action::Shell(vec![
+                                        "snap install $snaps".to_owned()
+                                    ])],
+                                    vars: [("snaps".to_owned(), "discord".to_owned())].into(),
+                                },
+                            ],
+                            vars: [
+                                ("alpha".to_owned(), "a".to_owned()),
+                                ("beta".to_owned(), "b".to_owned()),
+                            ]
+                            .into(),
+                        },
+                        Manifest {
+                            source: Some(
+                                Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("resources/test/load_manifests/manifest1.yaml"),
+                            ),
+                            name: "t470".to_owned(),
+                            hosts: vec!["t470".to_owned()],
+                            include: vec![Task {
+                                source: Some(
+                                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                                        .join("resources/test/load_manifests/t470.yaml"),
+                                ),
+                                name: "set host name".to_owned(),
+                                user: "root".to_owned(),
+                                actions: vec![Action::Shell(vec![
+                                    "hostnamectl hostname t470".to_owned()
+                                ])],
+                                vars: IndexMap::new(),
+                            }],
+                            vars: IndexMap::new(),
+                        },
+                        Manifest {
+                            source: Some(
+                                Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("resources/test/load_manifests/manifest1.yaml"),
+                            ),
+                            name: "zen3".to_owned(),
+                            hosts: vec!["zen3".to_owned()],
+                            include: vec![Task {
+                                source: Some(
+                                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                                        .join("resources/test/load_manifests/zen3.yaml"),
+                                ),
+                                name: "set host name".to_owned(),
+                                user: "root".to_owned(),
+                                actions: vec![Action::Shell(vec![
+                                    "hostnamectl hostname zen3".to_owned()
+                                ])],
+                                vars: IndexMap::new(),
+                            }],
+                            vars: IndexMap::new(),
+                        },
+                        Manifest {
+                            source: Some(
+                                Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("resources/test/load_manifests/manifest2.yaml"),
+                            ),
+                            name: "t470".to_owned(),
+                            hosts: vec!["t470".to_owned()],
+                            include: vec![Task {
+                                source: Some(
+                                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                                        .join("resources/test/load_manifests/t470.yaml"),
+                                ),
+                                name: "set host name".to_owned(),
+                                user: "root".to_owned(),
+                                actions: vec![Action::Shell(vec![
+                                    "hostnamectl hostname t470".to_owned()
+                                ])],
+                                vars: IndexMap::new(),
+                            }],
+                            vars: IndexMap::new(),
+                        },
+                    ],
+                };
+
+                assert_eq!(expected, manifests);
+            }
+        }
 
         mod hosts {
             use super::*;

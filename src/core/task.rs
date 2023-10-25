@@ -5,6 +5,7 @@ use crate::core::action::Action;
 use crate::core::manifest::Manifest;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Represents a task file; typically used in the context of a [Manifest].
 ///
@@ -20,7 +21,7 @@ pub struct Task {
     /// there is currently no standard value to place here, because these are not intended
     /// use cases for Sira at this time.
     #[serde(skip)]
-    pub source: Option<String>,
+    pub source: Option<PathBuf>,
 
     /// The [Task]'s name. Used for informational, logging, and debugging purposes.
     pub name: String,

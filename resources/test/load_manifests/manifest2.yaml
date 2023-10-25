@@ -1,0 +1,6 @@
+---
+name: t470
+hosts:
+  - t470
+include:
+  - t470.yaml

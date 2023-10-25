@@ -8,6 +8,8 @@
 use indexmap::IndexMap;
 use sira::core::manifest::ManifestFile;
 use sira::core::*;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 /// Stores a pair of possibly-overridden fields, one in YAML and one in Rust.
 ///
@@ -97,7 +99,7 @@ mod manifest {
 
         // Extract an owned String from Overrides, if applicable.
         let source = match overrides.source.value {
-            Some(v) => v.map(str::to_owned),
+            Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
             None => None,
         };
 
@@ -214,8 +216,6 @@ include:
     /// asserts_eq! on the generated Manifest and the deserialized Manifest.
     fn assert_de(overrides: Overrides) {
         let (source, manifest) = source_manifest_pair(overrides);
-        dbg!(&source);
-        dbg!(&manifest);
         assert_eq!(manifest, serde_yaml::from_str::<Manifest>(&source).unwrap());
     }
 
@@ -223,8 +223,6 @@ include:
     /// asserts_eq! on the generated YAML and the serialized YAML.
     fn assert_ser(overrides: Overrides) {
         let (source, manifest) = source_manifest_pair(overrides);
-        println!("{}", &source);
-        dbg!(&manifest);
         assert_eq!(source, serde_yaml::to_string(&manifest).unwrap());
     }
 
@@ -513,8 +511,6 @@ include:
     /// asserts_eq! on the generated ManifestFile and the deserialized ManifestFile.
     fn assert_de(overrides: Overrides) {
         let (source, manifest) = source_manifest_pair(overrides);
-        dbg!(&source);
-        dbg!(&manifest);
         assert_eq!(
             manifest,
             serde_yaml::from_str::<ManifestFile>(&source).unwrap()
@@ -525,8 +521,6 @@ include:
     /// asserts_eq! on the generated YAML and the serialized YAML.
     fn assert_ser(overrides: Overrides) {
         let (source, manifest) = source_manifest_pair(overrides);
-        println!("{}", &source);
-        dbg!(&manifest);
         assert_eq!(source, serde_yaml::to_string(&manifest).unwrap());
     }
 
@@ -729,7 +723,7 @@ mod task {
 
         // Extract an owned String from Overrides, if applicable.
         let source = match overrides.source.value {
-            Some(v) => v.map(str::to_owned),
+            Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
             None => None,
         };
 
