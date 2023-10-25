@@ -3,9 +3,71 @@ use crate::core::action::{Action, HostAction};
 #[cfg(doc)]
 use crate::core::plan::Plan;
 use crate::core::task::Task;
+use anyhow::anyhow;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Deserializer;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
 use std::sync::Arc;
+
+/// Loads [Manifest] values from a manifest file.
+pub fn load_manifests(source: String) -> anyhow::Result<Vec<Manifest>> {
+    let mut manifests = vec![];
+    let reader = BufReader::new(File::open(&source)?);
+
+    // Strip the file name from source to create the base path. Included task files with relative
+    // paths will be relative to this base path.
+    let base_path = Path::new(&source).parent().ok_or(anyhow!(
+        "could not compute parent directory for path: {source}"
+    ))?;
+
+    for document in Deserializer::from_reader(reader) {
+        let manifest_file = ManifestFile::deserialize(document)?;
+        let include = load_includes(base_path, manifest_file.include)?;
+
+        let manifest = Manifest {
+            source: Some(source.clone()),
+            name: manifest_file.name,
+            hosts: manifest_file.hosts,
+            include,
+            vars: manifest_file.vars,
+        };
+        manifests.push(manifest);
+    }
+    Ok(manifests)
+}
+
+/// Loads [Task]s from a [ManifestFile::include] list of file names.
+///
+/// This is a private method meant for use by [load_manifests].
+fn load_includes(base_path: &Path, includes: Vec<String>) -> anyhow::Result<Vec<Task>> {
+    let mut tasks = vec![];
+    for task_file in includes {
+        let path = base_path.join(&task_file);
+        tasks.extend(load_tasks(path)?);
+    }
+    Ok(tasks)
+}
+
+/// Loads [Task]s from a single file.
+///
+/// This is a private method meant for use by [load_manifests].
+fn load_tasks(source: impl AsRef<Path>) -> anyhow::Result<Vec<Task>> {
+    // This should be guaranteed lossless, since there should be no way for non-Unicode bytes to
+    // get into the string.
+    let source_string = source.as_ref().to_string_lossy().to_string();
+
+    let mut tasks = vec![];
+    let reader = BufReader::new(File::open(&source)?);
+    for document in Deserializer::from_reader(reader) {
+        let mut task = Task::deserialize(document)?;
+        task.source = Some(source_string.clone());
+        tasks.push(task);
+    }
+    Ok(tasks)
+}
 
 /// Represents a manifest file; typically used in the context of a [Plan].
 ///
@@ -43,12 +105,6 @@ pub struct Manifest {
     /// Order is preserved from the source file but is typically unimportant.
     #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
     pub vars: IndexMap<String, String>,
-}
-
-/// Loads [Manifest] values from a manifest file.
-#[allow(unused_variables)]
-pub fn load_manifests<R: std::io::BufRead>(source: R) -> Vec<Manifest> {
-    todo!()
 }
 
 impl Manifest {
@@ -213,11 +269,169 @@ impl Iterator for TaskIntoIter {
     }
 }
 
+/// A [Manifest] loaded directly from a file (or other deserialized input).
+///
+/// This type is constructed during file loading, e.g. from [load_manifests]. It is a stepping
+/// stone between input files and fully loaded [Manifest]s.
+///
+/// Identical to [Manifest] except that [ManifestFile::include] is a list of file names rather than
+/// a list of [Task]s.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ManifestFile {
+    /// Same as [Manifest::source].
+    #[serde(skip)]
+    pub source: Option<String>,
+
+    /// Same as [Manifest::name].
+    pub name: String,
+
+    /// Same as [Manifest::hosts].
+    pub hosts: Vec<String>,
+
+    /// A list of files from which to load [Task]s. Once you have loaded them, you can construct a
+    /// full and complete [Manifest].
+    ///
+    /// Order is preserved from the source file.
+    ///
+    /// If you are implementing some novel form of manifest and task loading, you can safely
+    /// store arbitrary values here as part of your loading code.
+    ///
+    /// # Non-Unicode paths
+    ///
+    /// While Rust supports non-Unicode paths, this field intentionally does not. The paths here
+    /// are presumably under a system adminstrator's control, so requiring them to be Unicode seems
+    /// reasonable. Meanwhile, someone developing an alternative loading scheme seems likely to
+    /// find [String]s more useful than [Path]s or [PathBuf]s.
+    ///
+    /// [Path]: std::path::Path
+    /// [PathBuf]: std::path::PathBuf
+    pub include: Vec<String>,
+
+    /// Same as [Manifest::vars].
+    #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
+    pub vars: IndexMap<String, String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::fixtures::plan;
     use super::*;
+    use std::path::PathBuf;
 
+    // load_manifests surfaces any errors it encounters, and all the complex work it does is
+    // through code that's already under test elsewhere, so we only have to test the happy path.
+    mod load_manifests {
+        use super::*;
+
+        #[test]
+        fn works() {
+            // In this test, we need to construct a PathBuf, turn it into a String, and then let it
+            // get turned back into a PathBuf inside the code under test. However, the expectation
+            // is that production code will read `source` from a user-provided String, e.g. stdin,
+            // a command-line argument, or a configuration file.
+            let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("resources/test/load_manifests/manifest1.yaml");
+            let manifests = load_manifests(source.to_string_lossy().to_string()).unwrap();
+
+            let expected = vec![
+                Manifest {
+                    source: Some(
+                        Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("resources/test/load_manifests/manifest1.yaml")
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
+                    name: "desktops".to_owned(),
+                    hosts: vec!["t470".to_owned(), "zen3".to_owned()],
+                    include: vec![
+                        Task {
+                            source: Some(
+                                Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("resources/test/load_manifests/task1.yaml")
+                                    .to_string_lossy()
+                                    .to_string(),
+                            ),
+                            name: "apt install".to_owned(),
+                            user: "root".to_owned(),
+                            actions: vec![Action::Shell(vec![
+                                "apt install -y $packages".to_owned()
+                            ])],
+                            vars: [(
+                                "packages".to_owned(),
+                                "aptitude build-essential exa".to_owned(),
+                            )]
+                            .into(),
+                        },
+                        Task {
+                            source: Some(
+                                Path::new(env!("CARGO_MANIFEST_DIR"))
+                                    .join("resources/test/load_manifests/task2.yaml")
+                                    .to_string_lossy()
+                                    .to_string(),
+                            ),
+                            name: "snap install".to_owned(),
+                            user: "root".to_owned(),
+                            actions: vec![Action::Shell(vec!["snap install $snaps".to_owned()])],
+                            vars: [("snaps".to_owned(), "discord".to_owned())].into(),
+                        },
+                    ],
+                    vars: [
+                        ("alpha".to_owned(), "a".to_owned()),
+                        ("beta".to_owned(), "b".to_owned()),
+                    ]
+                    .into(),
+                },
+                Manifest {
+                    source: Some(
+                        Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("resources/test/load_manifests/manifest1.yaml")
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
+                    name: "t470".to_owned(),
+                    hosts: vec!["t470".to_owned()],
+                    include: vec![Task {
+                        source: Some(
+                            Path::new(env!("CARGO_MANIFEST_DIR"))
+                                .join("resources/test/load_manifests/t470.yaml")
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                        name: "set host name".to_owned(),
+                        user: "root".to_owned(),
+                        actions: vec![Action::Shell(vec!["hostnamectl hostname t470".to_owned()])],
+                        vars: IndexMap::new(),
+                    }],
+                    vars: IndexMap::new(),
+                },
+                Manifest {
+                    source: Some(
+                        Path::new(env!("CARGO_MANIFEST_DIR"))
+                            .join("resources/test/load_manifests/manifest1.yaml")
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
+                    name: "zen3".to_owned(),
+                    hosts: vec!["zen3".to_owned()],
+                    include: vec![Task {
+                        source: Some(
+                            Path::new(env!("CARGO_MANIFEST_DIR"))
+                                .join("resources/test/load_manifests/zen3.yaml")
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                        name: "set host name".to_owned(),
+                        user: "root".to_owned(),
+                        actions: vec![Action::Shell(vec!["hostnamectl hostname zen3".to_owned()])],
+                        vars: IndexMap::new(),
+                    }],
+                    vars: IndexMap::new(),
+                },
+            ];
+
+            assert_eq!(expected, manifests);
+        }
+    }
     mod manifest {
         use super::*;
 
