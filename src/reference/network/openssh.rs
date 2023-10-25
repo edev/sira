@@ -713,9 +713,7 @@ mod tests {
                 let mut session = TestSession::new();
 
                 // Send the action to the client.
-                let action = Action::Shell {
-                    commands: vec!["cat cats.txt".to_string()],
-                };
+                let action = Action::Shell(vec!["cat cats.txt".to_string()]);
                 let manifest = run_action(&caller, &mut client, &action);
 
                 client._run_once(&mut session);
@@ -763,9 +761,7 @@ mod tests {
                 let mut session = TestSession::new();
 
                 // Send the action to the client.
-                let action = Action::Shell {
-                    commands: vec!["cat cats.txt".to_string()],
-                };
+                let action = Action::Shell(vec!["cat cats.txt".to_string()]);
                 run_action(&caller, &mut client, &action);
 
                 client._run_once(&mut session);

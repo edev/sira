@@ -195,9 +195,7 @@ pub mod tests {
                     manifest_name: "mname".to_string(),
                     task_source: Some("task".to_string()),
                     task_name: "tname".to_string(),
-                    action: Arc::new(Action::Shell {
-                        commands: vec!["pwd".to_string()],
-                    }),
+                    action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                 },
                 FailedToConnect {
                     host: "host".to_string(),
@@ -219,9 +217,7 @@ pub mod tests {
                     manifest_name: "mname".to_string(),
                     task_source: Some("task".to_string()),
                     task_name: "tname".to_string(),
-                    action: Arc::new(Action::Shell {
-                        commands: vec!["pwd".to_string()],
-                    }),
+                    action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                     result: Ok(Output {
                         status: ExitStatus::from_raw(0),
                         stdout: "Success".into(),
@@ -318,16 +314,14 @@ pub mod tests {
                     "Running action on host:\n\
                     \tManifest: mname (mani.fest)\n\
                     \tTask: tname (ta.sk)\n\
-                    \tAction: Shell { commands: [\"pwd\"] }",
+                    \tAction: Shell([\"pwd\"])",
                     RunningAction {
                         host: "host".to_string(),
                         manifest_source: Some("mani.fest".to_string()),
                         manifest_name: "mname".to_string(),
                         task_source: Some("ta.sk".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                     }
                     .to_string(),
                 );
@@ -336,16 +330,14 @@ pub mod tests {
                     "Running action on host:\n\
                     \tManifest: mname (Unknown source)\n\
                     \tTask: tname (Unknown source)\n\
-                    \tAction: Shell { commands: [\"pwd\"] }",
+                    \tAction: Shell([\"pwd\"])",
                     RunningAction {
                         host: "host".to_string(),
                         manifest_source: None,
                         manifest_name: "mname".to_string(),
                         task_source: None,
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                     }
                     .to_string(),
                 );
@@ -363,7 +355,7 @@ pub mod tests {
                     "Action complete on host:\n\
                     \tManifest: mname (mani.fest)\n\
                     \tTask: tname (ta.sk)\n\
-                    \tAction: Shell { commands: [\"pwd\"] }\n\
+                    \tAction: Shell([\"pwd\"])\n\
                     \tResult: Ok(Output { \
                         status: ExitStatus(unix_wait_status(0)), \
                             stdout: \"Success\", \
@@ -375,9 +367,7 @@ pub mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("ta.sk".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(output.clone()),
                     }
                     .to_string(),
@@ -387,7 +377,7 @@ pub mod tests {
                     "Action complete on host:\n\
                     \tManifest: mname (Unknown source)\n\
                     \tTask: tname (Unknown source)\n\
-                    \tAction: Shell { commands: [\"pwd\"] }\n\
+                    \tAction: Shell([\"pwd\"])\n\
                     \tResult: Ok(Output { \
                         status: ExitStatus(unix_wait_status(0)), \
                             stdout: \"Success\", \
@@ -399,9 +389,7 @@ pub mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: None,
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(output.clone()),
                     }
                     .to_string(),

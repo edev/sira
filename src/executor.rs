@@ -931,9 +931,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                     };
                     fixture.send_from_network(report);
                     fixture.runs_and_continues();
@@ -1060,9 +1058,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Err("Disconnected".to_string()),
                     };
                     fixture.send_from_network(report);
@@ -1091,9 +1087,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Err("Disconnected".to_string()),
                     };
                     fixture.send_from_network(report);
@@ -1119,9 +1113,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(-1),
                             stdout: "Not Success".into(),
@@ -1154,9 +1146,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(-1),
                             stdout: "Not Success".into(),
@@ -1189,9 +1179,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -1222,9 +1210,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -1272,9 +1258,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -1303,9 +1287,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -1352,9 +1334,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -1399,9 +1379,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -1449,9 +1427,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),

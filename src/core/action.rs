@@ -5,16 +5,25 @@ use crate::core::plan::Plan;
 use crate::core::{manifest::Manifest, task::Task};
 #[cfg(doc)]
 use crate::executor::Executor;
+use serde::{Deserialize, Serialize};
 #[cfg(doc)]
 use std::sync::Arc;
 
 /// The types of actions that Sira can perform on a client.
+///
+/// # (De)serialization
+///
+/// As of this writing, I am not aware of a way to prevent [serde_yaml] from using YAML tag
+/// notation for enums when using them directly. [Task] overrides this by applying
+/// `#[serde(with = "serde_yaml::with::singleton_map_recursive")]` to [Task::actions]. If you use
+/// [Action] directly, you will run into this limitation. If you know how to resolve it, please
+/// open an issue or pull request!
+// TODO Try to fix the tagged enum notation issue described above.
 // TODO Flesh out Actions. The current states are intentionally basic sketches.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Action {
-    Shell {
-        commands: Vec<String>,
-    },
+    Shell(Vec<String>),
 
     // I need to visit Ansible's docs to fill out this struct. A lot more needs to go here, I
     // strongly suspect.
@@ -152,7 +161,8 @@ impl HostAction {
     /// substitution.
     #[allow(dead_code)]
     pub fn compile(&self) -> Action {
-        todo!()
+        // TODO Implement this correctly. What's below is just for testing.
+        self.action.clone()
     }
 }
 
@@ -160,6 +170,7 @@ impl HostAction {
 mod tests {
     use super::super::fixtures::plan;
     use super::*;
+    use indexmap::IndexMap;
 
     mod host_action {
         use super::*;
@@ -194,7 +205,7 @@ mod tests {
                     name: "task-not-included".into(),
                     user: "zane".into(),
                     actions: vec![],
-                    vars: vec![],
+                    vars: IndexMap::new(),
                 };
                 HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
             }
@@ -203,7 +214,7 @@ mod tests {
             #[should_panic(expected = "task does not include this action")]
             fn requires_task_to_include_action() {
                 let (_, manifest, task, _) = plan();
-                let action = Action::Shell { commands: vec![] };
+                let action = Action::Shell(vec![]);
                 HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
             }
         }

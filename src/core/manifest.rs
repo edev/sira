@@ -3,13 +3,15 @@ use crate::core::action::{Action, HostAction};
 #[cfg(doc)]
 use crate::core::plan::Plan;
 use crate::core::task::Task;
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Represents a manifest file; typically used in the context of a [Plan].
 ///
 /// This type is typically parsed from a manifest file, but it can be constructed programmatically
 /// as well.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Manifest {
     /// Where this manifest came from.
     ///
@@ -18,6 +20,7 @@ pub struct Manifest {
     /// For manifests from other sources, e.g. directly from Rust or from network sources,
     /// there is currently no standard value to place here, because these are not intended
     /// use cases for Sira at this time.
+    #[serde(skip)]
     pub source: Option<String>,
 
     /// The [Manifest]'s name. Used for informational, logging, and debugging purposes.
@@ -38,7 +41,8 @@ pub struct Manifest {
     /// Variables are stored as `(name, value)` tuples.
     ///
     /// Order is preserved from the source file but is typically unimportant.
-    pub vars: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
+    pub vars: IndexMap<String, String>,
 }
 
 /// Loads [Manifest] values from a manifest file.
@@ -382,9 +386,7 @@ mod tests {
         fn returns_all_actions_for_all_manifests_and_tasks() {
             // Actions for Task 1 (below).
             let task_1_actions = vec![
-                Action::Shell {
-                    commands: vec!["echo hi".into(), "pwd".into()],
-                },
+                Action::Shell(vec!["echo hi".into(), "pwd".into()]),
                 Action::LineInFile {
                     after: "localhost".into(),
                     insert: vec!["192.168.1.93 zen3".into()],
@@ -403,9 +405,7 @@ mod tests {
             // Task 2 has no actions.
 
             // Actions for Task 3 (below).
-            let task_3_actions = vec![Action::Shell {
-                commands: vec!["echo bye".into(), "logout".into()],
-            }];
+            let task_3_actions = vec![Action::Shell(vec!["echo bye".into(), "logout".into()])];
 
             let tasks = vec![
                 // A normal, routine task.
@@ -414,7 +414,7 @@ mod tests {
                     name: "Task 1".into(),
                     user: "george".into(),
                     actions: task_1_actions.clone(),
-                    vars: vec![],
+                    vars: IndexMap::new(),
                 },
                 // A corner case: a task that's empty.
                 Task {
@@ -422,7 +422,7 @@ mod tests {
                     name: "Task 2".into(),
                     user: "george".into(),
                     actions: vec![],
-                    vars: vec![],
+                    vars: IndexMap::new(),
                 },
                 // Another routine task afterward.
                 Task {
@@ -430,7 +430,7 @@ mod tests {
                     name: "Task 3".into(),
                     user: "george".into(),
                     actions: task_3_actions.clone(),
-                    vars: vec![],
+                    vars: IndexMap::new(),
                 },
             ];
 
@@ -439,7 +439,7 @@ mod tests {
                 name: "API test".into(),
                 hosts: vec!["api_test".into()],
                 include: tasks,
-                vars: vec![],
+                vars: IndexMap::new(),
             };
 
             let task_1_host_actions = task_1_actions.into_iter().map(|action| {
@@ -487,7 +487,7 @@ mod tests {
                 name: "API test".into(),
                 hosts: vec!["api_test".into()],
                 include: vec![],
-                vars: vec![],
+                vars: IndexMap::new(),
             };
 
             let mut task_iter = manifest.tasks_for("api_test").unwrap();
@@ -504,7 +504,7 @@ mod tests {
                 name: "API test".into(),
                 user: "george".into(),
                 actions: vec![],
-                vars: vec![],
+                vars: IndexMap::new(),
             };
 
             let manifest = Manifest {
@@ -512,7 +512,7 @@ mod tests {
                 name: "API test".into(),
                 hosts: vec!["api_test".into()],
                 include: vec![task],
-                vars: vec![],
+                vars: IndexMap::new(),
             };
 
             let mut task_iter = manifest.tasks_for("api_test").unwrap();

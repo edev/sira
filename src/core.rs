@@ -20,20 +20,19 @@ pub use task::Task;
 #[cfg(test)]
 pub mod fixtures {
     use super::*;
+    use indexmap::IndexMap;
 
     /// Returns a [Plan], which contains one [Manifest], which contains one [Task], which contains
     /// one [Action]. Also returns clones of these contained values for convenience.
     pub fn plan() -> (Plan, Manifest, Task, Action) {
-        let action = Action::Shell {
-            commands: vec!["echo hi".into(), "pwd".into()],
-        };
+        let action = Action::Shell(vec!["echo hi".into(), "pwd".into()]);
 
         let task = Task {
             source: None,
             name: "API test".into(),
             user: "archie".into(),
             actions: vec![action.clone()],
-            vars: vec![],
+            vars: IndexMap::new(),
         };
 
         let manifest = Manifest {
@@ -41,7 +40,7 @@ pub mod fixtures {
             name: "API test".into(),
             hosts: vec!["archie-desktop".into()],
             include: vec![task.clone()],
-            vars: vec![],
+            vars: IndexMap::new(),
         };
 
         let plan = Plan {

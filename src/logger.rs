@@ -478,9 +478,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                     },
                 );
 
@@ -516,9 +514,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(0),
                             stdout: "Success".into(),
@@ -535,9 +531,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Ok(Output {
                             status: ExitStatus::from_raw(1),
                             stdout: "".into(),
@@ -554,9 +548,7 @@ mod tests {
                         manifest_name: "mname".to_string(),
                         task_source: Some("task".to_string()),
                         task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell {
-                            commands: vec!["pwd".to_string()],
-                        }),
+                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
                         result: Err("Could not connect to host".into()),
                     },
                 );

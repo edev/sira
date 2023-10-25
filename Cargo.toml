@@ -9,9 +9,12 @@ edition = "2021"
 anyhow = "1.0"
 chrono = "0.4"
 crossbeam = "0.8.2"
+indexmap = { version = "2.0", features = ["serde"] }
 openssh = { version = "0.10", features = ["native-mux"], optional = true }
-tokio = { version = "1.32", features = ["rt"], optional = true }
 regex = "1.9"
+serde = "1.0"
+serde_yaml = "0.9"
+tokio = { version = "1.32", features = ["rt"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
