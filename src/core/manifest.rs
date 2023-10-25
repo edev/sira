@@ -316,7 +316,6 @@ pub struct ManifestFile {
 mod tests {
     use super::super::fixtures::plan;
     use super::*;
-    use std::path::PathBuf;
 
     // load_manifests surfaces any errors it encounters, and all the complex work it does is
     // through code that's already under test elsewhere, so we only have to test the happy path.
