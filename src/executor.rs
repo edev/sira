@@ -142,6 +142,7 @@ impl Executor {
     /// like spawn a thread to run this method.
     pub fn run(mut self) -> Result<(), Error> {
         let mut host_plans = HashMap::new();
+        let mut connected_hosts = HashSet::new();
         let mut ignored_hosts = HashSet::new();
         loop {
             let mut select = Select::new();
@@ -149,7 +150,9 @@ impl Executor {
             select.recv(&self.network.receiver);
             select.ready();
 
-            if let RunStatus::Exit(result) = self._run_once(&mut host_plans, &mut ignored_hosts) {
+            if let RunStatus::Exit(result) =
+                self._run_once(&mut host_plans, &mut connected_hosts, &mut ignored_hosts)
+            {
                 return result;
             }
         }
@@ -177,6 +180,7 @@ impl Executor {
     fn _run_once(
         &mut self,
         host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
+        connected_hosts: &mut HashSet<String>,
         ignored_hosts: &mut HashSet<String>,
     ) -> RunStatus {
         // For a detailed discussion of how this kind of event loop is designed, see
@@ -221,7 +225,9 @@ impl Executor {
         }
 
         // Finally, process the report, as well as any channel errors.
-        if let Some(retval) = self.process_report(host_plans, ignored_hosts, maybe_report) {
+        if let Some(retval) =
+            self.process_report(host_plans, connected_hosts, ignored_hosts, maybe_report)
+        {
             return retval;
         }
 
@@ -288,13 +294,21 @@ impl Executor {
     fn process_report(
         &self,
         host_plans: &mut HashMap<String, VecDeque<HostPlanIntoIter>>,
+        connected_hosts: &mut HashSet<String>,
         ignored_hosts: &mut HashSet<String>,
         maybe_report: Result<network::Report, TryRecvError>,
     ) -> Option<RunStatus> {
         use network::Report::*;
         match maybe_report {
-            Ok(Connecting(_)) | Ok(Connected(_)) | Ok(RunningAction { .. }) => {
+            Ok(Connecting(_)) | Ok(RunningAction { .. }) => {
                 // This is just a status update. No actions needed.
+            }
+            Ok(Connected(host)) => {
+                if !connected_hosts.insert(host.clone()) {
+                    self.logger.warning(format!(
+                        "Tried to insert \"{host}\" into connected_hosts, but it was already there."
+                    ));
+                };
             }
             Ok(FailedToConnect { host, .. })
             | Ok(Disconnected {
@@ -303,14 +317,61 @@ impl Executor {
             }) => {
                 // Proceed with the run, but assume that this host is inaccessible.
                 self.ignore_host(host_plans, ignored_hosts, &host);
+
+                // Remove the host from connected_hosts, if it was present.
+                connected_hosts.remove(&host);
+
+                // If there are no more hosts in host_plans, then we're done.
+                //
+                // If we can't reach the UI, exit with success, since the system is
+                // now idle anyway and the UI is simply indicating that it wants to close.
+                //
+                // It's a bit odd to exit with success here, given that we've received a Report
+                // indicating an error. A disconnection with error is probably a real error from the
+                // user's perspective, but a FailedToConnect might be expected, e.g. if the user's
+                // laptop is listed in the manifests but happens to be in their backpack rather
+                // than powered on. Tolerance to this type of situation is an intentional
+                // difference from Ansible based on the author's personal preference and use case.
+                //
+                // In any case, whether this is an error is really splitting hairs. The executor
+                // completed all the work it could, so from its perspective, this is at least
+                // somewhat reasonably a success. Why certain hosts disconnected or failed to
+                // connect is not really the executor's concern. Furthermore, if we exit with error
+                // here under the rationale that a disconnection with error warrants such a
+                // response, then we also need to track whether we have ever received such a
+                // message and exit with error at the end of the run if so.
+                if connected_hosts.is_empty() {
+                    self.logger.report(Report::Done);
+                    if self.ui.sender.send(Report::Done).is_err() {
+                        return Some(RunStatus::Exit(Ok(())));
+                    }
+                }
             }
             Ok(Disconnected { host, error: None }) => {
-                // If we had plans for the host, then it was disconnected while it had work to do.
-                // Proceed the same way as FailedToConnect.
-                //
-                // Otherwise, this is not an error condition. No actions necessary.
                 if host_plans.contains_key(&host) {
+                    // We had plans for the host, so it was disconnected while it had work to do.
+                    // Proceed the same way as FailedToConnect; this is an error state.
                     self.ignore_host(host_plans, ignored_hosts, &host);
+                }
+
+                // Clear the host from connected_hosts; it should be present, since it should have
+                // sent network::Report::Connected previously.
+                if !connected_hosts.remove(&host) {
+                    self.logger.warning(format!(
+                        "Tried to clear host \"{}\" from connected_hosts but could not find it",
+                        host
+                    ));
+                }
+
+                // If there are no more hosts in host_plans, then we're done.
+                //
+                // If we can't reach the UI, exit with success, since the system is
+                // now idle anyway and the UI is simply indicating that it wants to close.
+                if connected_hosts.is_empty() {
+                    self.logger.report(Report::Done);
+                    if self.ui.sender.send(Report::Done).is_err() {
+                        return Some(RunStatus::Exit(Ok(())));
+                    }
                 }
             }
             Ok(ActionResult {
@@ -389,17 +450,6 @@ impl Executor {
                                 .sender
                                 .send(NetworkControlMessage::Disconnect(host.clone()))
                                 .unwrap();
-
-                            // If the queue is empty, the whole data structure might be empty, too.
-                            //
-                            // If we can't reach the UI, exit with success, since the system is
-                            // idle anyway.
-                            if host_plans.is_empty() {
-                                self.logger.report(Report::Done);
-                                if self.ui.sender.send(Report::Done).is_err() {
-                                    return Some(RunStatus::Exit(Ok(())));
-                                }
-                            }
                         }
                     }
                 }
@@ -428,7 +478,7 @@ impl Executor {
         // know precisely what's going on and we can keep our own data in a valid state.
         if host_plans.remove(host).is_none() {
             self.logger.warning(format!(
-                "Tried to clear host \"{}\" from Executor's state, but could not find it",
+                "Tried to clear host \"{}\" from host_plans but could not find it",
                 host
             ));
         }
@@ -597,8 +647,11 @@ mod tests {
                 /// An empty collection suitable for passing to _run_once as host_plans.
                 host_plans: HashMap<String, VecDeque<HostPlanIntoIter>>,
 
-                /// An empty collection suitable for passing to _run_once as ignored_hosts.
+                /// An empty collection suitable for passing to _run_once as connected_hosts.
                 ignored_hosts: HashSet<String>,
+
+                /// An empty collection suitable for passing to _run_once as ignored_hosts.
+                connected_hosts: HashSet<String>,
 
                 /// A common host to use when generating values; this is compile-time static.
                 host: &'static str,
@@ -610,6 +663,7 @@ mod tests {
                     let (logger, report_receiver, raw_receiver) = ExecutiveLog::fixture();
                     let (executor, ui, network) = Executor::new(logger);
                     let host_plans: HashMap<String, VecDeque<HostPlanIntoIter>> = HashMap::new();
+                    let connected_hosts: HashSet<String> = HashSet::new();
                     let ignored_hosts: HashSet<String> = HashSet::new();
 
                     Fixture {
@@ -619,6 +673,7 @@ mod tests {
                         ui,
                         network,
                         host_plans,
+                        connected_hosts,
                         ignored_hosts,
                         host: "host",
                     }
@@ -651,8 +706,11 @@ mod tests {
                 fn runs_and_continues(&mut self) {
                     assert_eq!(
                         RunStatus::Continue,
-                        self.executor
-                            ._run_once(&mut self.host_plans, &mut self.ignored_hosts)
+                        self.executor._run_once(
+                            &mut self.host_plans,
+                            &mut self.connected_hosts,
+                            &mut self.ignored_hosts
+                        )
                     );
                 }
 
@@ -766,9 +824,11 @@ mod tests {
                     fixture.send_from_ui(plan);
                     drop(fixture.network.receiver);
 
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
+                    fixture.executor._run_once(
+                        &mut fixture.host_plans,
+                        &mut fixture.connected_hosts,
+                        &mut fixture.ignored_hosts,
+                    );
                 }
 
                 #[test]
@@ -825,9 +885,11 @@ mod tests {
                         RunStatus::Exit(Err(Error {
                             kind: ErrorKind::UiClosed
                         })),
-                        fixture
-                            .executor
-                            ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
+                        fixture.executor._run_once(
+                            &mut fixture.host_plans,
+                            &mut fixture.connected_hosts,
+                            &mut fixture.ignored_hosts,
+                        )
                     );
                 }
 
@@ -840,9 +902,11 @@ mod tests {
 
                     assert_eq!(
                         RunStatus::Exit(Ok(())),
-                        fixture
-                            .executor
-                            ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
+                        fixture.executor._run_once(
+                            &mut fixture.host_plans,
+                            &mut fixture.connected_hosts,
+                            &mut fixture.ignored_hosts,
+                        )
                     );
                 }
             }
@@ -867,7 +931,29 @@ mod tests {
                         fixture.runs_and_continues();
                     }
 
-                    assert_eq!(reports.len(), fixture.report_receiver.try_iter().count());
+                    // Store all received LogEntry<Report> values so we can run multiple tests on
+                    // them below.
+                    let received: Vec<_> = fixture.report_receiver.try_iter().collect();
+
+                    // We receive as many Report::Done entries as there are FailedToConnect and
+                    // Disconnected entries, since we never populated executor::host_plans. Filter
+                    // them out and check them here.
+                    assert_eq!(
+                        3,
+                        received
+                            .iter()
+                            .filter(|r| **r == LogEntry::Notice(Report::Done))
+                            .count()
+                    );
+
+                    // Filtering out the Report::Done, make sure we received all expected reports.
+                    assert_eq!(
+                        reports.len(),
+                        received
+                            .iter()
+                            .filter(|r| **r != LogEntry::Notice(Report::Done))
+                            .count()
+                    );
                 }
 
                 #[test]
@@ -884,7 +970,20 @@ mod tests {
                         fixture.runs_and_continues();
                     }
 
-                    assert_eq!(reports.len(), fixture.ui.receiver.try_iter().count());
+                    // Store all received Report values so we can run multiple tests on
+                    // them below.
+                    let received: Vec<_> = fixture.ui.receiver.try_iter().collect();
+
+                    // We receive as many Report::Done entries as there are FailedToConnect and
+                    // Disconnected entries, since we never populated executor::host_plans. Filter
+                    // them out and check them here.
+                    assert_eq!(3, received.iter().filter(|r| **r == Report::Done).count());
+
+                    // Filtering out the Report::Done, make sure we received all expected reports.
+                    assert_eq!(
+                        reports.len(),
+                        received.iter().filter(|r| **r != Report::Done).count()
+                    );
                 }
 
                 #[test]
@@ -902,555 +1001,794 @@ mod tests {
                         RunStatus::Exit(Err(Error {
                             kind: ErrorKind::UiClosed,
                         })),
-                        fixture
-                            .executor
-                            ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts)
-                    );
-                }
-
-                #[test]
-                fn connecting_continues() {
-                    let mut fixture = Fixture::new();
-                    fixture.send_from_network(network::Report::Connecting("host".into()));
-                    fixture.runs_and_continues();
-                }
-
-                #[test]
-                fn connected_continues() {
-                    let mut fixture = Fixture::new();
-                    fixture.send_from_network(network::Report::Connected("host".into()));
-                    fixture.runs_and_continues();
-                }
-
-                #[test]
-                fn running_action_continues() {
-                    let mut fixture = Fixture::new();
-                    let report = network::Report::RunningAction {
-                        host: "host".to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                    };
-                    fixture.send_from_network(report);
-                    fixture.runs_and_continues();
-                }
-
-                #[test]
-                fn failed_to_connect_clears_and_ignores_host() {
-                    let mut fixture = Fixture::new();
-
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::FailedToConnect {
-                        host: fixture.host.to_string(),
-                        error: "error".to_string(),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-                }
-
-                #[test]
-                fn failed_to_connect_logs_error_if_host_not_found() {
-                    let mut fixture = Fixture::new();
-
-                    // For this test, we deliberately don't pre-populate host_plans.
-
-                    let report = network::Report::FailedToConnect {
-                        host: fixture.host.to_string(),
-                        error: "error".to_string(),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-
-                    assert_eq!(
-                        Ok(LogEntry::Warning(format!(
-                            "Tried to clear host \"{}\" from Executor's state, but could not find it",
-                            fixture.host
-                        ))),
-                        fixture.raw_receiver.try_recv()
-                    );
-                }
-
-                #[test]
-                fn disconnected_with_error_clears_and_ignores_host() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::Disconnected {
-                        host: fixture.host.to_string(),
-                        error: Some("error".to_string()),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-                }
-
-                #[test]
-                fn disconnected_with_error_logs_error_if_host_not_found() {
-                    let mut fixture = Fixture::new();
-
-                    // For this test, we deliberately don't pre-populate host_plans.
-
-                    let report = network::Report::Disconnected {
-                        host: fixture.host.to_string(),
-                        error: Some("error".to_string()),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-
-                    assert_eq!(
-                        Ok(LogEntry::Warning(format!(
-                            "Tried to clear host \"{}\" from Executor's state, but could not find it",
-                            fixture.host
-                        ))),
-                        fixture.raw_receiver.try_recv()
-                    );
-                }
-
-                #[test]
-                fn disconnected_without_error_unexpectedly_clears_and_ignores_host() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::Disconnected {
-                        host: fixture.host.to_string(),
-                        error: None,
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-                }
-
-                #[test]
-                fn action_result_err_disconnects_and_ignores() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Err("Disconnected".to_string()),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-
-                    fixture.network_expects(Ok(NetworkControlMessage::Disconnect(
-                        fixture.host.into(),
-                    )));
-                }
-
-                #[test]
-                #[should_panic(expected = "SendError")]
-                fn action_result_err_panics_if_network_closed() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Err("Disconnected".to_string()),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Close the network.
-                    drop(fixture.network.receiver);
-
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
-                }
-
-                #[test]
-                fn action_result_not_success_disconnects_and_ignores() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(-1),
-                            stdout: "Not Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert_eq!(0, fixture.host_plans.len());
-                    assert!(fixture.ignored_hosts.contains(fixture.host));
-
-                    fixture.network_expects(Ok(NetworkControlMessage::Disconnect(
-                        fixture.host.into(),
-                    )));
-                }
-
-                #[test]
-                #[should_panic(expected = "SendError")]
-                fn action_result_not_success_panics_if_network_closed() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(-1),
-                            stdout: "Not Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Close the network.
-                    drop(fixture.network.receiver);
-
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
-                }
-
-                #[test]
-                fn action_result_success_sends_next_host_action() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans with an iterator with at least one value left.
-                    let (mut plan, _, _, _) = plan();
-                    plan.manifests[0].hosts = vec![fixture.host.to_string()];
-                    let queue = VecDeque::from([plan.plan_for(fixture.host).unwrap().into_iter()]);
-                    fixture.insert_host_queue(queue);
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    fixture.runs_and_continues();
-
-                    assert!(matches!(
-                        fixture.network.receiver.try_recv(),
-                        Ok(NetworkControlMessage::RunAction(_))
-                    ));
-                }
-
-                #[test]
-                #[should_panic(expected = "SendError")]
-                fn action_result_success_panics_if_network_closed() {
-                    let mut fixture = Fixture::new();
-
-                    // Pre-populate host_plans so there's an entry to clear.
-                    fixture.insert_host_queue(VecDeque::new());
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Close the network.
-                    drop(fixture.network.receiver);
-
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
-                }
-
-                #[test]
-                fn action_result_success_advances_to_next_plan() {
-                    let mut fixture = Fixture::new();
-
-                    // Create a Plan with one Action left.
-                    let (mut one_action_plan, _, _, _) = plan();
-                    one_action_plan.manifests.truncate(1);
-                    let manifest = &mut one_action_plan.manifests[0];
-                    manifest.hosts.clear();
-                    manifest.hosts.push(fixture.host.to_string());
-                    manifest.include.truncate(1);
-                    manifest.include[0].actions.truncate(1);
-
-                    // Create an iterator with no HostActions left, based on the above Plan.
-                    let mut done_iter = one_action_plan.plan_for(fixture.host).unwrap().into_iter();
-                    let _ = done_iter.next();
-
-                    // Create an iterator with one HostAction left.
-                    let one_action_iter =
-                        one_action_plan.plan_for(fixture.host).unwrap().into_iter();
-
-                    // Set up the test scenario.
-                    let queue = VecDeque::from([done_iter, one_action_iter]);
-                    fixture.insert_host_queue(queue);
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Run the code under test.
-                    fixture.runs_and_continues();
-
-                    assert!(matches!(
-                        fixture.network.receiver.try_recv(),
-                        Ok(NetworkControlMessage::RunAction(_))
-                    ));
-                    assert_eq!(1, fixture.host_plans[fixture.host].len());
-                }
-
-                #[test]
-                fn action_result_success_warns_if_host_not_found() {
-                    let mut fixture = Fixture::new();
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Run the code under test.
-                    fixture.runs_and_continues();
-
-                    assert_eq!(
-                        Ok(LogEntry::Warning(format!(
-                            "Received an ActionResult for host \"{}\" but couldn't find a \
-                            queue for this host",
-                            fixture.host
-                        ))),
-                        fixture.raw_receiver.try_recv(),
-                    );
-                }
-
-                #[test]
-                fn action_result_success_disconnects_host_if_no_more_actions() {
-                    let mut fixture = Fixture::new();
-
-                    // Create a Plan with no Actions but with the right host.
-                    let (mut empty_plan, _, _, _) = plan();
-                    empty_plan.manifests.truncate(1);
-                    let manifest = &mut empty_plan.manifests[0];
-                    manifest.hosts.clear();
-                    manifest.hosts.push(fixture.host.to_string());
-                    manifest.include.clear();
-
-                    // Create an iterator with no HostActions left, based on the above Plan.
-                    let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
-
-                    // Set up the test scenario.
-                    let queue = VecDeque::from([done_iter]);
-                    fixture.insert_host_queue(queue);
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Run the code under test.
-                    fixture.runs_and_continues();
-
-                    assert!(matches!(
-                        fixture.network.receiver.try_recv(),
-                        Ok(NetworkControlMessage::Disconnect(_))
-                    ));
-
-                    assert!(!fixture.host_plans.contains_key(fixture.host));
-                }
-
-                #[test]
-                fn reports_done_if_host_plans_is_empty() {
-                    let mut fixture = Fixture::new();
-
-                    // Create a Plan with no Actions but with the right host.
-                    let (mut empty_plan, _, _, _) = plan();
-                    empty_plan.manifests.truncate(1);
-                    let manifest = &mut empty_plan.manifests[0];
-                    manifest.hosts.clear();
-                    manifest.hosts.push(fixture.host.to_string());
-                    manifest.include.clear();
-
-                    // Create an iterator with no HostActions left, based on the above Plan.
-                    let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
-
-                    // Set up the test scenario.
-                    let queue = VecDeque::from([done_iter]);
-                    fixture.insert_host_queue(queue);
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    // Run the code under test.
-                    fixture.runs_and_continues();
-
-                    let logged_reports: Vec<_> = fixture.report_receiver.try_iter().collect();
-                    assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
-                }
-
-                #[test]
-                fn exits_if_host_plans_is_empty_and_ui_is_closed() {
-                    // The code under test is specifically the RunStatus::Exit(Ok(()) inside
-                    // process_report(). This code only runs under a specific race outcome: the UI
-                    // closes between _run_once() reporting a network::Report::ActionResult and
-                    // process_report() reaching the code under test. Therefore, this test breaks with
-                    // the other tests in this section and directly calls process_report() after
-                    // closing the UI.
-
-                    let mut fixture = Fixture::new();
-
-                    // Create a Plan with no Actions but with the right host.
-                    let (mut empty_plan, _, _, _) = plan();
-                    empty_plan.manifests.truncate(1);
-                    let manifest = &mut empty_plan.manifests[0];
-                    manifest.hosts.clear();
-                    manifest.hosts.push(fixture.host.to_string());
-                    manifest.include.clear();
-
-                    // Create an iterator with no HostActions left, based on the above Plan.
-                    let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
-
-                    // Set up the test scenario.
-                    let queue = VecDeque::from([done_iter]);
-                    fixture.insert_host_queue(queue);
-
-                    let report = network::Report::ActionResult {
-                        host: fixture.host.to_string(),
-                        manifest_source: Some("manifest".to_string()),
-                        manifest_name: "mname".to_string(),
-                        task_source: Some("task".to_string()),
-                        task_name: "tname".to_string(),
-                        action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
-                        result: Ok(Output {
-                            status: ExitStatus::from_raw(0),
-                            stdout: "Success".into(),
-                            stderr: "".into(),
-                        }),
-                    };
-                    fixture.send_from_network(report);
-
-                    drop(fixture.ui.receiver);
-
-                    // Run the code under test.
-                    let maybe_report = fixture.executor.network.receiver.try_recv();
-                    assert_eq!(
-                        Some(RunStatus::Exit(Ok(()))),
-                        fixture.executor.process_report(
+                        fixture.executor._run_once(
                             &mut fixture.host_plans,
+                            &mut fixture.connected_hosts,
                             &mut fixture.ignored_hosts,
-                            maybe_report
                         )
                     );
+                }
 
-                    let logged_reports: Vec<_> = fixture.report_receiver.try_iter().collect();
-                    assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                mod connecting {
+                    use super::*;
+
+                    #[test]
+                    fn continues() {
+                        let mut fixture = Fixture::new();
+                        fixture.send_from_network(network::Report::Connecting("host".into()));
+                        fixture.runs_and_continues();
+                    }
+                }
+
+                mod connected {
+                    use super::*;
+
+                    #[test]
+                    fn continues() {
+                        let mut fixture = Fixture::new();
+                        fixture.send_from_network(network::Report::Connected("host".into()));
+                        fixture.runs_and_continues();
+                    }
+
+                    #[test]
+                    fn adds_host_to_connected_hosts() {
+                        let mut fixture = Fixture::new();
+                        fixture.send_from_network(network::Report::Connected("host".into()));
+                        fixture.runs_and_continues();
+
+                        assert_eq!(1, fixture.connected_hosts.len());
+                        assert!(fixture.connected_hosts.contains("host"));
+                        assert_eq!(0, fixture.raw_receiver.try_iter().count());
+                    }
+
+                    #[test]
+                    fn warns_if_connected_hosts_already_contained_host() {
+                        let mut fixture = Fixture::new();
+                        fixture.connected_hosts.insert("host".to_string());
+                        fixture.send_from_network(network::Report::Connected("host".into()));
+                        fixture.runs_and_continues();
+
+                        assert_eq!(1, fixture.connected_hosts.len());
+                        assert!(fixture.connected_hosts.contains("host"));
+                        assert_eq!(1, fixture.raw_receiver.try_iter().count());
+                    }
+                }
+
+                mod running_action {
+                    use super::*;
+
+                    #[test]
+                    fn continues() {
+                        let mut fixture = Fixture::new();
+                        let report = network::Report::RunningAction {
+                            host: "host".to_string(),
+                            manifest_source: Some("manifest".to_string()),
+                            manifest_name: "mname".to_string(),
+                            task_source: Some("task".to_string()),
+                            task_name: "tname".to_string(),
+                            action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                        };
+                        fixture.send_from_network(report);
+                        fixture.runs_and_continues();
+                    }
+                }
+
+                mod failed_to_connect {
+                    use super::*;
+
+                    #[test]
+                    fn clears_host_from_host_plans_and_ignores_host() {
+                        let mut fixture = Fixture::new();
+
+                        // Pre-populate host_plans so there's an entry to clear.
+                        fixture.insert_host_queue(VecDeque::new());
+
+                        let report = network::Report::FailedToConnect {
+                            host: fixture.host.to_string(),
+                            error: "error".to_string(),
+                        };
+                        fixture.send_from_network(report);
+
+                        fixture.runs_and_continues();
+
+                        assert_eq!(0, fixture.host_plans.len());
+                        assert!(fixture.ignored_hosts.contains(fixture.host));
+                    }
+
+                    #[test]
+                    fn logs_error_if_host_not_in_host_plans() {
+                        let mut fixture = Fixture::new();
+
+                        // For this test, we deliberately don't pre-populate host_plans.
+
+                        let report = network::Report::FailedToConnect {
+                            host: fixture.host.to_string(),
+                            error: "error".to_string(),
+                        };
+                        fixture.send_from_network(report);
+
+                        fixture.runs_and_continues();
+
+                        assert_eq!(0, fixture.host_plans.len());
+                        assert!(fixture.ignored_hosts.contains(fixture.host));
+
+                        assert_eq!(
+                            Ok(LogEntry::Warning(format!(
+                                "Tried to clear host \"{}\" from host_plans but could not find it",
+                                fixture.host
+                            ))),
+                            fixture.raw_receiver.try_recv()
+                        );
+                    }
+
+                    #[test]
+                    fn removes_host_from_connected_hosts() {
+                        let mut fixture = Fixture::new();
+
+                        // Pre-populate connected_hosts so there's an entry to clear.
+                        fixture.connected_hosts.insert(fixture.host.to_string());
+
+                        let report = network::Report::FailedToConnect {
+                            host: fixture.host.to_string(),
+                            error: "error".to_string(),
+                        };
+                        fixture.send_from_network(report);
+
+                        fixture.runs_and_continues();
+
+                        assert!(!fixture.connected_hosts.contains(fixture.host));
+                    }
+
+                    #[test]
+                    fn reports_done_if_connected_hosts_is_empty() {
+                        let mut fixture = Fixture::new();
+
+                        let report = network::Report::FailedToConnect {
+                            host: fixture.host.to_string(),
+                            error: "Uh oh".to_string(),
+                        };
+                        fixture.send_from_network(report);
+
+                        // Run the code under test.
+                        fixture.runs_and_continues();
+
+                        let logged_reports: Vec<_> = fixture.report_receiver.try_iter().collect();
+                        assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                    }
+
+                    #[test]
+                    fn exits_if_connected_hosts_is_empty_and_ui_is_closed() {
+                        // The code under test is specifically the RunStatus::Exit(Ok(()) inside
+                        // process_report(). This code only runs under a specific race outcome: the UI
+                        // closes between _run_once() reporting a network::Report::ActionResult and
+                        // process_report() reaching the code under test. Therefore, this test breaks with
+                        // the other tests in this section and directly calls process_report() after
+                        // closing the UI.
+
+                        let mut fixture = Fixture::new();
+
+                        let report = network::Report::FailedToConnect {
+                            host: fixture.host.to_string(),
+                            error: "Uh oh".to_string(),
+                        };
+                        fixture.send_from_network(report);
+
+                        drop(fixture.ui.receiver);
+
+                        // Run the code under test.
+                        let maybe_report = fixture.executor.network.receiver.try_recv();
+                        assert_eq!(
+                            Some(RunStatus::Exit(Ok(()))),
+                            fixture.executor.process_report(
+                                &mut fixture.host_plans,
+                                &mut fixture.connected_hosts,
+                                &mut fixture.ignored_hosts,
+                                maybe_report
+                            )
+                        );
+
+                        let logged_reports: Vec<_> = fixture.report_receiver.try_iter().collect();
+                        assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                    }
+                }
+
+                mod disconnected {
+                    use super::*;
+
+                    mod with_error {
+                        use super::*;
+
+                        #[test]
+                        fn clears_host_from_host_plans_and_ignores_host() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: Some("error".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert_eq!(0, fixture.host_plans.len());
+                            assert!(fixture.ignored_hosts.contains(fixture.host));
+                        }
+
+                        #[test]
+                        fn logs_error_if_host_not_in_host_plans() {
+                            let mut fixture = Fixture::new();
+
+                            // For this test, we deliberately don't pre-populate host_plans.
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: Some("error".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert_eq!(0, fixture.host_plans.len());
+                            assert!(fixture.ignored_hosts.contains(fixture.host));
+
+                            assert_eq!(
+                                Ok(LogEntry::Warning(format!(
+                                    "Tried to clear host \"{}\" from host_plans but could not find it",
+                                    fixture.host
+                                ))),
+                                fixture.raw_receiver.try_recv()
+                            );
+                        }
+
+                        #[test]
+                        fn removes_host_from_connected_hosts() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate connected_hosts so there's an entry to clear.
+                            fixture.connected_hosts.insert(fixture.host.to_string());
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: Some("error".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert!(!fixture.connected_hosts.contains(fixture.host));
+                        }
+
+                        #[test]
+                        fn reports_done_if_connected_hosts_is_empty() {
+                            let mut fixture = Fixture::new();
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: Some("Uh oh".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            let logged_reports: Vec<_> =
+                                fixture.report_receiver.try_iter().collect();
+                            assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                        }
+
+                        #[test]
+                        fn exits_if_connected_hosts_is_empty_and_ui_is_closed() {
+                            // The code under test is specifically the RunStatus::Exit(Ok(()) inside
+                            // process_report(). This code only runs under a specific race outcome: the UI
+                            // closes between _run_once() reporting a network::Report::ActionResult and
+                            // process_report() reaching the code under test. Therefore, this test breaks with
+                            // the other tests in this section and directly calls process_report() after
+                            // closing the UI.
+
+                            let mut fixture = Fixture::new();
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: Some("Uh oh".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            drop(fixture.ui.receiver);
+
+                            // Run the code under test.
+                            let maybe_report = fixture.executor.network.receiver.try_recv();
+                            assert_eq!(
+                                Some(RunStatus::Exit(Ok(()))),
+                                fixture.executor.process_report(
+                                    &mut fixture.host_plans,
+                                    &mut fixture.connected_hosts,
+                                    &mut fixture.ignored_hosts,
+                                    maybe_report
+                                )
+                            );
+
+                            let logged_reports: Vec<_> =
+                                fixture.report_receiver.try_iter().collect();
+                            assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                        }
+                    }
+
+                    mod without_error {
+                        use super::*;
+
+                        #[test]
+                        fn unexpected_disconnection_clears_and_ignores_host() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: None,
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert_eq!(0, fixture.host_plans.len());
+                            assert!(fixture.ignored_hosts.contains(fixture.host));
+                        }
+
+                        #[test]
+                        fn removes_host_from_connected_hosts() {
+                            let mut fixture = Fixture::new();
+
+                            fixture.connected_hosts.insert(fixture.host.to_string());
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: None,
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            assert!(!fixture.connected_hosts.contains(fixture.host));
+                        }
+
+                        #[test]
+                        fn logs_error_if_host_not_in_connected_hosts() {
+                            let mut fixture = Fixture::new();
+
+                            // For this test, we deliberately don't pre-populate
+                            // connected_hosts.
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: None,
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert_eq!(0, fixture.connected_hosts.len());
+
+                            assert_eq!(
+                                Ok(LogEntry::Warning(format!(
+                                    "Tried to clear host \"{}\" from connected_hosts but could not find it",
+                                    fixture.host
+                                ))),
+                                fixture.raw_receiver.try_recv()
+                            );
+                        }
+
+                        #[test]
+                        fn reports_done_if_connected_hosts_is_empty() {
+                            let mut fixture = Fixture::new();
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: None,
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            let logged_reports: Vec<_> =
+                                fixture.report_receiver.try_iter().collect();
+                            assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                        }
+
+                        #[test]
+                        fn continues_if_connected_hosts_is_not_empty() {
+                            let mut fixture = Fixture::new();
+
+                            fixture.connected_hosts.insert("other_host".to_string());
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: None,
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            let logged_reports: Vec<_> =
+                                fixture.report_receiver.try_iter().collect();
+                            assert!(!logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                        }
+
+                        #[test]
+                        fn exits_if_connected_hosts_is_empty_and_ui_is_closed() {
+                            // The code under test is specifically the RunStatus::Exit(Ok(()) inside
+                            // process_report(). This code only runs under a specific race outcome: the UI
+                            // closes between _run_once() reporting a network::Report::ActionResult and
+                            // process_report() reaching the code under test. Therefore, this test breaks with
+                            // the other tests in this section and directly calls process_report() after
+                            // closing the UI.
+
+                            let mut fixture = Fixture::new();
+
+                            let report = network::Report::Disconnected {
+                                host: fixture.host.to_string(),
+                                error: None,
+                            };
+                            fixture.send_from_network(report);
+
+                            drop(fixture.ui.receiver);
+
+                            // Run the code under test.
+                            let maybe_report = fixture.executor.network.receiver.try_recv();
+                            assert_eq!(
+                                Some(RunStatus::Exit(Ok(()))),
+                                fixture.executor.process_report(
+                                    &mut fixture.host_plans,
+                                    &mut fixture.connected_hosts,
+                                    &mut fixture.ignored_hosts,
+                                    maybe_report
+                                )
+                            );
+
+                            let logged_reports: Vec<_> =
+                                fixture.report_receiver.try_iter().collect();
+                            assert!(logged_reports.contains(&LogEntry::Notice(Report::Done)));
+                        }
+                    }
+                }
+
+                mod action_result {
+                    use super::*;
+
+                    mod err {
+                        use super::*;
+
+                        #[test]
+                        fn disconnects_and_ignores() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Err("Disconnected".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert_eq!(0, fixture.host_plans.len());
+                            assert!(fixture.ignored_hosts.contains(fixture.host));
+
+                            fixture.network_expects(Ok(NetworkControlMessage::Disconnect(
+                                fixture.host.into(),
+                            )));
+                        }
+
+                        #[test]
+                        #[should_panic(expected = "SendError")]
+                        fn panics_if_network_closed() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Err("Disconnected".to_string()),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Close the network.
+                            drop(fixture.network.receiver);
+
+                            fixture.executor._run_once(
+                                &mut fixture.host_plans,
+                                &mut fixture.connected_hosts,
+                                &mut fixture.ignored_hosts,
+                            );
+                        }
+                    }
+
+                    mod not_success {
+                        use super::*;
+
+                        #[test]
+                        fn disconnects_and_ignores() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(-1),
+                                    stdout: "Not Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert_eq!(0, fixture.host_plans.len());
+                            assert!(fixture.ignored_hosts.contains(fixture.host));
+
+                            fixture.network_expects(Ok(NetworkControlMessage::Disconnect(
+                                fixture.host.into(),
+                            )));
+                        }
+
+                        #[test]
+                        #[should_panic(expected = "SendError")]
+                        fn panics_if_network_closed() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(-1),
+                                    stdout: "Not Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Close the network.
+                            drop(fixture.network.receiver);
+
+                            fixture.executor._run_once(
+                                &mut fixture.host_plans,
+                                &mut fixture.connected_hosts,
+                                &mut fixture.ignored_hosts,
+                            );
+                        }
+                    }
+
+                    mod success {
+                        use super::*;
+
+                        #[test]
+                        fn sends_next_host_action() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans with an iterator with at least one value left.
+                            let (mut plan, _, _, _) = plan();
+                            plan.manifests[0].hosts = vec![fixture.host.to_string()];
+                            let queue =
+                                VecDeque::from([plan.plan_for(fixture.host).unwrap().into_iter()]);
+                            fixture.insert_host_queue(queue);
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(0),
+                                    stdout: "Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            fixture.runs_and_continues();
+
+                            assert!(matches!(
+                                fixture.network.receiver.try_recv(),
+                                Ok(NetworkControlMessage::RunAction(_))
+                            ));
+                        }
+
+                        #[test]
+                        #[should_panic(expected = "SendError")]
+                        fn panics_if_network_closed() {
+                            let mut fixture = Fixture::new();
+
+                            // Pre-populate host_plans so there's an entry to clear.
+                            fixture.insert_host_queue(VecDeque::new());
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(0),
+                                    stdout: "Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Close the network.
+                            drop(fixture.network.receiver);
+
+                            fixture.executor._run_once(
+                                &mut fixture.host_plans,
+                                &mut fixture.connected_hosts,
+                                &mut fixture.ignored_hosts,
+                            );
+                        }
+
+                        #[test]
+                        fn advances_to_next_plan() {
+                            let mut fixture = Fixture::new();
+
+                            // Create a Plan with one Action left.
+                            let (mut one_action_plan, _, _, _) = plan();
+                            one_action_plan.manifests.truncate(1);
+                            let manifest = &mut one_action_plan.manifests[0];
+                            manifest.hosts.clear();
+                            manifest.hosts.push(fixture.host.to_string());
+                            manifest.include.truncate(1);
+                            manifest.include[0].actions.truncate(1);
+
+                            // Create an iterator with no HostActions left, based on the above Plan.
+                            let mut done_iter =
+                                one_action_plan.plan_for(fixture.host).unwrap().into_iter();
+                            let _ = done_iter.next();
+
+                            // Create an iterator with one HostAction left.
+                            let one_action_iter =
+                                one_action_plan.plan_for(fixture.host).unwrap().into_iter();
+
+                            // Set up the test scenario.
+                            let queue = VecDeque::from([done_iter, one_action_iter]);
+                            fixture.insert_host_queue(queue);
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(0),
+                                    stdout: "Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            assert!(matches!(
+                                fixture.network.receiver.try_recv(),
+                                Ok(NetworkControlMessage::RunAction(_))
+                            ));
+                            assert_eq!(1, fixture.host_plans[fixture.host].len());
+                        }
+
+                        #[test]
+                        fn warns_if_host_not_found() {
+                            let mut fixture = Fixture::new();
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(0),
+                                    stdout: "Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            assert_eq!(
+                                Ok(LogEntry::Warning(format!(
+                                    "Received an ActionResult for host \"{}\" but couldn't find a \
+                                    queue for this host",
+                                    fixture.host
+                                ))),
+                                fixture.raw_receiver.try_recv(),
+                            );
+                        }
+
+                        #[test]
+                        fn disconnects_host_if_no_more_actions() {
+                            let mut fixture = Fixture::new();
+
+                            // Create a Plan with no Actions but with the right host.
+                            let (mut empty_plan, _, _, _) = plan();
+                            empty_plan.manifests.truncate(1);
+                            let manifest = &mut empty_plan.manifests[0];
+                            manifest.hosts.clear();
+                            manifest.hosts.push(fixture.host.to_string());
+                            manifest.include.clear();
+
+                            // Create an iterator with no HostActions left, based on the above Plan.
+                            let done_iter = empty_plan.plan_for(fixture.host).unwrap().into_iter();
+
+                            // Set up the test scenario.
+                            let queue = VecDeque::from([done_iter]);
+                            fixture.insert_host_queue(queue);
+
+                            let report = network::Report::ActionResult {
+                                host: fixture.host.to_string(),
+                                manifest_source: Some("manifest".to_string()),
+                                manifest_name: "mname".to_string(),
+                                task_source: Some("task".to_string()),
+                                task_name: "tname".to_string(),
+                                action: Arc::new(Action::Shell(vec!["pwd".to_string()])),
+                                result: Ok(Output {
+                                    status: ExitStatus::from_raw(0),
+                                    stdout: "Success".into(),
+                                    stderr: "".into(),
+                                }),
+                            };
+                            fixture.send_from_network(report);
+
+                            // Run the code under test.
+                            fixture.runs_and_continues();
+
+                            assert!(matches!(
+                                fixture.network.receiver.try_recv(),
+                                Ok(NetworkControlMessage::Disconnect(_))
+                            ));
+
+                            assert!(!fixture.host_plans.contains_key(fixture.host));
+                        }
+                    }
                 }
 
                 #[test]
@@ -1458,9 +1796,11 @@ mod tests {
                 fn panics_if_network_disconnected() {
                     let mut fixture = Fixture::new();
                     drop(fixture.network.sender);
-                    fixture
-                        .executor
-                        ._run_once(&mut fixture.host_plans, &mut fixture.ignored_hosts);
+                    fixture.executor._run_once(
+                        &mut fixture.host_plans,
+                        &mut fixture.connected_hosts,
+                        &mut fixture.ignored_hosts,
+                    );
                 }
             }
         }
