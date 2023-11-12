@@ -78,63 +78,76 @@ mod manifest {
         setter!(hosts, Vec<&'static str>);
         setter!(include, Vec<Task>);
         setter!(vars, IndexMap<String, String>);
-    }
 
-    /// Manually generates a correct pairing of a YAML String and a Manifest.
-    ///
-    /// By default (i.e. with a newly minted Overrides value), produces values representing the
-    /// most basic test case.
-    ///
-    /// To override a field, use the methods provided on Overrides.
-    fn source_manifest_pair(overrides: Overrides) -> (String, Manifest) {
-        // Pull an owned String from the user-friendly `&'static str` that Overrides stores. Add a
-        // newline if the value is non-empty.
-        let source_yaml = match overrides.source.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "".to_owned(),
-        };
+        /// Generates a YAML-Manifest value pair using Overrides, deserializes the YAML, and
+        /// asserts_eq! on the generated Manifest and the deserialized Manifest.
+        fn assert_de(self) {
+            let (source, manifest) = self.source_manifest_pair();
+            assert_eq!(manifest, serde_yaml::from_str::<Manifest>(&source).unwrap());
+        }
 
-        // Extract an owned String from Overrides, if applicable.
-        let source = match overrides.source.value {
-            Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
-            None => None,
-        };
+        /// Generates a YAML-Manifest value pair using Overrides, serializes the Manifest, and
+        /// asserts_eq! on the generated YAML and the serialized YAML.
+        fn assert_ser(self) {
+            let (source, manifest) = self.source_manifest_pair();
+            assert_eq!(source, serde_yaml::to_string(&manifest).unwrap());
+        }
 
-        // The rest of the values follow the pattern above.
+        /// Manually generates a correct pairing of a YAML String and a Manifest.
+        ///
+        /// By default (i.e. with a newly minted Overrides value), produces values representing the
+        /// most basic test case.
+        ///
+        /// To override a field, use the methods provided on Overrides.
+        fn source_manifest_pair(self) -> (String, Manifest) {
+            // Pull an owned String from the user-friendly `&'static str` that Overrides stores.
+            // Add a newline if the value is non-empty.
+            let source_yaml = match self.source.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "".to_owned(),
+            };
 
-        let name_yaml = match overrides.name.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "name: Console commands\n".to_owned(),
-        };
-        let name = match overrides.name.value {
-            Some(v) => v.to_owned(),
-            None => "Console commands".to_owned(),
-        };
+            // Extract an owned String from Overrides, if applicable.
+            let source = match self.source.value {
+                Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
+                None => None,
+            };
 
-        let hosts_yaml = match overrides.hosts.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "hosts:\n- bob\n".to_owned(),
-        };
-        let hosts = match overrides.hosts.value {
-            Some(v) => v.into_iter().map(str::to_owned).collect(),
-            None => vec!["bob".to_owned()],
-        };
+            // The rest of the values follow the pattern above.
 
-        let include_yaml = match overrides.include.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "\
+            let name_yaml = match self.name.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "name: Console commands\n".to_owned(),
+            };
+            let name = match self.name.value {
+                Some(v) => v.to_owned(),
+                None => "Console commands".to_owned(),
+            };
+
+            let hosts_yaml = match self.hosts.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "hosts:\n- bob\n".to_owned(),
+            };
+            let hosts = match self.hosts.value {
+                Some(v) => v.into_iter().map(str::to_owned).collect(),
+                None => vec!["bob".to_owned()],
+            };
+
+            let include_yaml = match self.include.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "\
 include:
 - name: Console commands
   user: bob
@@ -152,90 +165,77 @@ include:
       from: ./files/home/bob/.zshrc
       to: .
 "
-            .to_owned(),
-        };
-        let include = match overrides.include.value {
-            Some(v) => v,
-            None => {
-                let mut task1_vars = IndexMap::new();
-                task1_vars.insert("message".to_owned(), "Hello there!".to_owned());
-                vec![
-                    Task {
-                        source: None,
-                        name: "Console commands".to_owned(),
-                        user: "bob".to_owned(),
-                        actions: vec![Action::Shell(vec![
-                            "pwd".to_owned(),
-                            "echo $message > ./message".to_owned(),
-                            "uname -r".to_owned(),
-                        ])],
-                        vars: task1_vars,
-                    },
-                    Task {
-                        source: None,
-                        name: "Transfer config files".to_owned(),
-                        user: "bob".to_owned(),
-                        actions: vec![Action::Upload {
-                            from: "./files/home/bob/.zshrc".to_owned(),
-                            to: ".".to_owned(),
-                        }],
-                        vars: IndexMap::new(),
-                    },
-                ]
-            }
-        };
+                .to_owned(),
+            };
+            let include = match self.include.value {
+                Some(v) => v,
+                None => {
+                    let mut task1_vars = IndexMap::new();
+                    task1_vars.insert("message".to_owned(), "Hello there!".to_owned());
+                    vec![
+                        Task {
+                            source: None,
+                            name: "Console commands".to_owned(),
+                            user: "bob".to_owned(),
+                            actions: vec![Action::Shell(vec![
+                                "pwd".to_owned(),
+                                "echo $message > ./message".to_owned(),
+                                "uname -r".to_owned(),
+                            ])],
+                            vars: task1_vars,
+                        },
+                        Task {
+                            source: None,
+                            name: "Transfer config files".to_owned(),
+                            user: "bob".to_owned(),
+                            actions: vec![Action::Upload {
+                                from: "./files/home/bob/.zshrc".to_owned(),
+                                to: ".".to_owned(),
+                            }],
+                            vars: IndexMap::new(),
+                        },
+                    ]
+                }
+            };
 
-        let vars_yaml = match overrides.vars.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "vars:\n  HOME: /home/bob\n".to_owned(),
-        };
-        let vars = match overrides.vars.value {
-            Some(v) => v,
-            None => {
-                let mut vars = IndexMap::new();
-                vars.insert("HOME".to_owned(), "/home/bob".to_owned());
-                vars
-            }
-        };
+            let vars_yaml = match self.vars.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "vars:\n  HOME: /home/bob\n".to_owned(),
+            };
+            let vars = match self.vars.value {
+                Some(v) => v,
+                None => {
+                    let mut vars = IndexMap::new();
+                    vars.insert("HOME".to_owned(), "/home/bob".to_owned());
+                    vars
+                }
+            };
 
-        let yaml = format!("{source_yaml}{name_yaml}{hosts_yaml}{include_yaml}{vars_yaml}");
-        let manifest = Manifest {
-            source,
-            name,
-            hosts,
-            include,
-            vars,
-        };
-        (yaml, manifest)
-    }
-
-    /// Generates a YAML-Manifest value pair using Overrides, deserializes the YAML, and
-    /// asserts_eq! on the generated Manifest and the deserialized Manifest.
-    fn assert_de(overrides: Overrides) {
-        let (source, manifest) = source_manifest_pair(overrides);
-        assert_eq!(manifest, serde_yaml::from_str::<Manifest>(&source).unwrap());
-    }
-
-    /// Generates a YAML-Manifest value pair using Overrides, serializes the Manifest, and
-    /// asserts_eq! on the generated YAML and the serialized YAML.
-    fn assert_ser(overrides: Overrides) {
-        let (source, manifest) = source_manifest_pair(overrides);
-        assert_eq!(source, serde_yaml::to_string(&manifest).unwrap());
+            let yaml = format!("{source_yaml}{name_yaml}{hosts_yaml}{include_yaml}{vars_yaml}");
+            let manifest = Manifest {
+                source,
+                name,
+                hosts,
+                include,
+                vars,
+            };
+            (yaml, manifest)
+        }
     }
 
     /// Blanket "deserialization works" test covering the basic case for all fields.
     #[test]
     fn deserialization_works() {
-        assert_de(Overrides::default());
+        Overrides::default().assert_de();
     }
 
     /// Blanket "serialization works" test covering the basic case for all fields.
     #[test]
     fn serialization_works() {
-        assert_ser(Overrides::default());
+        Overrides::default().assert_ser();
     }
 
     mod source {
@@ -244,10 +244,12 @@ include:
         /// Verifies that a serialized Manifest doesn't include a source field.
         #[test]
         fn serialize_skips() {
-            assert_ser(Overrides::new().source(Override {
-                yaml: "",
-                value: Some("sketchy-source.yaml"),
-            }));
+            Overrides::new()
+                .source(Override {
+                    yaml: "",
+                    value: Some("sketchy-source.yaml"),
+                })
+                .assert_ser();
         }
 
         /// Verifies that any source field is ignored during deserialization.
@@ -257,10 +259,12 @@ include:
         /// This test documents the behavior and notifies us if it changes.
         #[test]
         fn deserialization_ignores_if_present() {
-            assert_de(Overrides::new().source(Override {
-                yaml: "source: sketchy-file.yaml",
-                value: None,
-            }));
+            Overrides::new()
+                .source(Override {
+                    yaml: "source: sketchy-file.yaml",
+                    value: None,
+                })
+                .assert_de();
         }
     }
 
@@ -274,10 +278,12 @@ include:
         #[test]
         #[should_panic(expected = "missing field `name`")]
         fn deserialization_fails_if_absent() {
-            assert_de(Overrides::new().name(Override {
-                yaml: "",
-                value: "",
-            }));
+            Overrides::new()
+                .name(Override {
+                    yaml: "",
+                    value: "",
+                })
+                .assert_de();
         }
     }
 
@@ -290,10 +296,12 @@ include:
         #[test]
         #[should_panic(expected = "expected a sequence")]
         fn deserialization_from_short_form_fails() {
-            assert_de(Overrides::new().hosts(Override {
-                yaml: "hosts: bob",
-                value: vec!["bob"],
-            }));
+            Overrides::new()
+                .hosts(Override {
+                    yaml: "hosts: bob",
+                    value: vec!["bob"],
+                })
+                .assert_de();
         }
     }
 
@@ -306,10 +314,12 @@ include:
         /// from the YAML source.
         #[test]
         fn deserialization_defaults_to_empty_if_absent() {
-            assert_de(Overrides::new().vars(Override {
-                yaml: "",
-                value: IndexMap::new(),
-            }));
+            Overrides::new()
+                .vars(Override {
+                    yaml: "",
+                    value: IndexMap::new(),
+                })
+                .assert_de();
         }
 
         /// Verifies that entries in a deserialized Manifest::vars appear in the same order as
@@ -325,23 +335,27 @@ include:
             vars.insert("GAMMA".to_owned(), "gamma".to_owned());
             vars.insert("ALPHA".to_owned(), "alpha".to_owned());
 
-            assert_de(Overrides::new().vars(Override {
-                yaml: "\
+            Overrides::new()
+                .vars(Override {
+                    yaml: "\
 vars:
   BETA: beta
   GAMMA: gamma
   ALPHA: alpha",
-                value: vars,
-            }));
+                    value: vars,
+                })
+                .assert_de();
         }
 
         /// Verifies that vars is omitted during serialization if Manifest::vars is empty.
         #[test]
         fn serialization_skips_if_empty() {
-            assert_de(Overrides::new().vars(Override {
-                yaml: "",
-                value: IndexMap::new(),
-            }));
+            Overrides::new()
+                .vars(Override {
+                    yaml: "",
+                    value: IndexMap::new(),
+                })
+                .assert_de();
         }
 
         /// Verifies that entries in a serialized Manifest::vars appear in the same order as the
@@ -357,14 +371,16 @@ vars:
             vars.insert("GAMMA".to_owned(), "gamma".to_owned());
             vars.insert("ALPHA".to_owned(), "alpha".to_owned());
 
-            assert_ser(Overrides::new().vars(Override {
-                yaml: "\
+            Overrides::new()
+                .vars(Override {
+                    yaml: "\
 vars:
   BETA: beta
   GAMMA: gamma
   ALPHA: alpha",
-                value: vars,
-            }));
+                    value: vars,
+                })
+                .assert_ser();
         }
     }
 }
@@ -702,124 +718,124 @@ mod task {
         setter!(user, &'static str);
         setter!(actions, Vec<Action>);
         setter!(vars, IndexMap<String, String>);
-    }
 
-    /// Manually generates a correct pairing of a YAML String and a Task.
-    ///
-    /// By default (i.e. with a newly minted Overrides value), produces values representing the
-    /// most basic test case.
-    ///
-    /// To override a field, use the methods provided on Overrides.
-    fn source_task_pair(overrides: Overrides) -> (String, Task) {
-        // Pull an owned String from the user-friendly `&'static str` that Overrides stores. Add a
-        // newline if the value is non-empty.
-        let source_yaml = match overrides.source.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "".to_owned(),
-        };
+        /// Generates a YAML-Task value pair using Overrides, deserializes the YAML, and asserts_eq!
+        /// on the generated Task and the deserialized Task.
+        fn assert_de(self) {
+            let (source, task) = self.source_task_pair();
+            assert_eq!(task, serde_yaml::from_str::<Task>(&source).unwrap());
+        }
 
-        // Extract an owned String from Overrides, if applicable.
-        let source = match overrides.source.value {
-            Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
-            None => None,
-        };
+        /// Generates a YAML-Task value pair using Overrides, serializes the Task, and asserts_eq!
+        /// on the generated YAML and the serialized YAML.
+        fn assert_ser(self) {
+            let (source, task) = self.source_task_pair();
+            assert_eq!(source, serde_yaml::to_string(&task).unwrap());
+        }
 
-        // The rest of the values follow the pattern above.
+        /// Manually generates a correct pairing of a YAML String and a Task.
+        ///
+        /// By default (i.e. with a newly minted Overrides value), produces values representing the
+        /// most basic test case.
+        ///
+        /// To override a field, use the methods provided on Overrides.
+        fn source_task_pair(self) -> (String, Task) {
+            // Pull an owned String from the user-friendly `&'static str` that Overrides stores.
+            // Add a newline if the value is non-empty.
+            let source_yaml = match self.source.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "".to_owned(),
+            };
 
-        let name_yaml = match overrides.name.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "name: Console commands\n".to_owned(),
-        };
-        let name = match overrides.name.value {
-            Some(v) => v.to_owned(),
-            None => "Console commands".to_owned(),
-        };
+            // Extract an owned String from Overrides, if applicable.
+            let source = match self.source.value {
+                Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
+                None => None,
+            };
 
-        let user_yaml = match overrides.user.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "user: bob\n".to_owned(),
-        };
-        let user = match overrides.user.value {
-            Some(v) => v.to_owned(),
-            None => "bob".to_owned(),
-        };
+            // The rest of the values follow the pattern above.
 
-        let actions_yaml = match overrides.actions.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "actions:\n- shell:\n  - pwd\n  - echo hi\n  - uname -r\n".to_owned(),
-        };
-        let actions = match overrides.actions.value {
-            Some(v) => v,
-            None => vec![Action::Shell(vec![
-                "pwd".to_owned(),
-                "echo hi".to_owned(),
-                "uname -r".to_owned(),
-            ])],
-        };
+            let name_yaml = match self.name.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "name: Console commands\n".to_owned(),
+            };
+            let name = match self.name.value {
+                Some(v) => v.to_owned(),
+                None => "Console commands".to_owned(),
+            };
 
-        let vars_yaml = match overrides.vars.yaml {
-            Some(yaml) => match yaml.is_empty() {
-                true => yaml.to_owned(),
-                false => yaml.to_owned() + "\n",
-            },
-            None => "vars:\n  HOME: /home/bob\n".to_owned(),
-        };
-        let vars = match overrides.vars.value {
-            Some(v) => v,
-            None => {
-                let mut vars = IndexMap::new();
-                vars.insert("HOME".to_owned(), "/home/bob".to_owned());
-                vars
-            }
-        };
+            let user_yaml = match self.user.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "user: bob\n".to_owned(),
+            };
+            let user = match self.user.value {
+                Some(v) => v.to_owned(),
+                None => "bob".to_owned(),
+            };
 
-        let yaml = format!("{source_yaml}{name_yaml}{user_yaml}{actions_yaml}{vars_yaml}");
-        let task = Task {
-            source,
-            name,
-            user,
-            actions,
-            vars,
-        };
-        (yaml, task)
-    }
+            let actions_yaml = match self.actions.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "actions:\n- shell:\n  - pwd\n  - echo hi\n  - uname -r\n".to_owned(),
+            };
+            let actions = match self.actions.value {
+                Some(v) => v,
+                None => vec![Action::Shell(vec![
+                    "pwd".to_owned(),
+                    "echo hi".to_owned(),
+                    "uname -r".to_owned(),
+                ])],
+            };
 
-    /// Generates a YAML-Task value pair using Overrides, deserializes the YAML, and asserts_eq! on
-    /// the generated Task and the deserialized Task.
-    fn assert_de(overrides: Overrides) {
-        let (source, task) = source_task_pair(overrides);
-        assert_eq!(task, serde_yaml::from_str::<Task>(&source).unwrap());
-    }
+            let vars_yaml = match self.vars.yaml {
+                Some(yaml) => match yaml.is_empty() {
+                    true => yaml.to_owned(),
+                    false => yaml.to_owned() + "\n",
+                },
+                None => "vars:\n  HOME: /home/bob\n".to_owned(),
+            };
+            let vars = match self.vars.value {
+                Some(v) => v,
+                None => {
+                    let mut vars = IndexMap::new();
+                    vars.insert("HOME".to_owned(), "/home/bob".to_owned());
+                    vars
+                }
+            };
 
-    /// Generates a YAML-Task value pair using Overrides, serializes the Task, and asserts_eq! on
-    /// the generated YAML and the serialized YAML.
-    fn assert_ser(overrides: Overrides) {
-        let (source, task) = source_task_pair(overrides);
-        assert_eq!(source, serde_yaml::to_string(&task).unwrap());
+            let yaml = format!("{source_yaml}{name_yaml}{user_yaml}{actions_yaml}{vars_yaml}");
+            let task = Task {
+                source,
+                name,
+                user,
+                actions,
+                vars,
+            };
+            (yaml, task)
+        }
     }
 
     /// Blanket "deserialization works" test covering the basic case for all fields.
     #[test]
     fn deserialization_works() {
-        assert_de(Overrides::default());
+        Overrides::default().assert_de();
     }
 
     /// Blanket "serialization works" test covering the basic case for all fields.
     #[test]
     fn serialization_works() {
-        assert_ser(Overrides::default());
+        Overrides::default().assert_ser();
     }
 
     mod source {
@@ -828,10 +844,12 @@ mod task {
         /// Verifies that a serialized Task doesn't include a source field.
         #[test]
         fn serialize_skips() {
-            assert_ser(Overrides::new().source(Override {
-                yaml: "",
-                value: Some("sketchy-source.yaml"),
-            }));
+            Overrides::new()
+                .source(Override {
+                    yaml: "",
+                    value: Some("sketchy-source.yaml"),
+                })
+                .assert_ser();
         }
 
         /// Verifies that any source field is ignored during deserialization.
@@ -841,10 +859,12 @@ mod task {
         /// This test documents the behavior and notifies us if it changes.
         #[test]
         fn deserialization_ignores_if_present() {
-            assert_de(Overrides::new().source(Override {
-                yaml: "source: sketchy-file.yaml",
-                value: None,
-            }));
+            Overrides::new()
+                .source(Override {
+                    yaml: "source: sketchy-file.yaml",
+                    value: None,
+                })
+                .assert_de();
         }
     }
 
@@ -858,10 +878,12 @@ mod task {
         #[test]
         #[should_panic(expected = "missing field `name`")]
         fn deserialization_fails_if_absent() {
-            assert_de(Overrides::new().name(Override {
-                yaml: "",
-                value: "",
-            }));
+            Overrides::new()
+                .name(Override {
+                    yaml: "",
+                    value: "",
+                })
+                .assert_de();
         }
     }
 
@@ -872,19 +894,23 @@ mod task {
         /// user is missing from the YAML source.
         #[test]
         fn deserialization_defaults_to_empty_if_absent() {
-            assert_de(Overrides::new().user(Override {
-                yaml: "",
-                value: "",
-            }));
+            Overrides::new()
+                .user(Override {
+                    yaml: "",
+                    value: "",
+                })
+                .assert_de();
         }
 
         /// Verifies that user is omitted during serialization if Task::user is the empty string.
         #[test]
         fn serialization_skips_if_empty() {
-            assert_ser(Overrides::new().user(Override {
-                yaml: "",
-                value: "",
-            }));
+            Overrides::new()
+                .user(Override {
+                    yaml: "",
+                    value: "",
+                })
+                .assert_ser();
         }
     }
 
@@ -897,10 +923,12 @@ mod task {
         /// YAML source.
         #[test]
         fn deserialization_defaults_to_empty_if_absent() {
-            assert_de(Overrides::new().vars(Override {
-                yaml: "",
-                value: IndexMap::new(),
-            }));
+            Overrides::new()
+                .vars(Override {
+                    yaml: "",
+                    value: IndexMap::new(),
+                })
+                .assert_de();
         }
 
         /// Verifies that entries in a deserialized Task::vars appear in the same order as the
@@ -916,23 +944,27 @@ mod task {
             vars.insert("GAMMA".to_owned(), "gamma".to_owned());
             vars.insert("ALPHA".to_owned(), "alpha".to_owned());
 
-            assert_de(Overrides::new().vars(Override {
-                yaml: "\
+            Overrides::new()
+                .vars(Override {
+                    yaml: "\
 vars:
   BETA: beta
   GAMMA: gamma
   ALPHA: alpha",
-                value: vars,
-            }));
+                    value: vars,
+                })
+                .assert_de();
         }
 
         /// Verifies that vars is omitted during serialization if Task::vars is empty.
         #[test]
         fn serialization_skips_if_empty() {
-            assert_de(Overrides::new().vars(Override {
-                yaml: "",
-                value: IndexMap::new(),
-            }));
+            Overrides::new()
+                .vars(Override {
+                    yaml: "",
+                    value: IndexMap::new(),
+                })
+                .assert_de();
         }
 
         /// Verifies that entries in a serialized Task::vars appear in the same order as the
@@ -948,14 +980,16 @@ vars:
             vars.insert("GAMMA".to_owned(), "gamma".to_owned());
             vars.insert("ALPHA".to_owned(), "alpha".to_owned());
 
-            assert_ser(Overrides::new().vars(Override {
-                yaml: "\
+            Overrides::new()
+                .vars(Override {
+                    yaml: "\
 vars:
   BETA: beta
   GAMMA: gamma
   ALPHA: alpha",
-                value: vars,
-            }));
+                    value: vars,
+                })
+                .assert_ser();
         }
     }
 }
