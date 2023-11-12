@@ -58,8 +58,11 @@ impl NetworkClientThread for ClientThread {
 ///
 /// Some tests do not call the methods we fake with [Session]. For thoroughness, these tests use
 /// [ClientThread] instead of [TestableClientThread].
+///
+/// To enable better integration testing, this type is public but stripped from documentation.
 #[derive(Debug)]
-struct TestableClientThread {
+#[doc(hidden)]
+pub struct TestableClientThread {
     /// The host name that this thread is meant to manage.
     host: String,
 
@@ -69,7 +72,7 @@ struct TestableClientThread {
 }
 
 impl TestableClientThread {
-    fn new(
+    pub fn new(
         host: String,
         sender: Sender<Report>,
         receiver: Receiver<NetworkControlMessage>,
@@ -78,7 +81,7 @@ impl TestableClientThread {
         TestableClientThread { host, channels }
     }
 
-    fn run<S: Session>(mut self, session: &mut S) {
+    pub fn run<S: Session>(mut self, session: &mut S) {
         while self._run_once(session) {}
     }
 
@@ -163,8 +166,9 @@ impl TestableClientThread {
                 // Send the action to the host and collect the output.
                 use Action::*;
                 let output = match host_action.compile() {
-                    _action @ Shell { .. } | _action @ LineInFile { .. } => session
-                        .client_action("action.to_yaml()")
+                    action @ Shell { .. } | action @ LineInFile { .. } => session
+                        // Unwrap: YAML serialization should never fail.
+                        .client_action(serde_yaml::to_string(&action).unwrap())
                         .map_err(|e| anyhow!(e)),
 
                     // There's a lot missing from this implementation:
@@ -255,7 +259,10 @@ impl TestableClientThread {
 ///
 /// This lives in its own trait, as a value instantiated and passed into [TestableClientThread],
 /// for dependency injection for testing.
-trait Session {
+///
+/// To enable better integration testing, this type is public but stripped from documentation.
+#[doc(hidden)]
+pub trait Session {
     /// Returns whether [Self::connect] has ever both been called and succeeded (returned [Ok]).
     ///
     /// For efficiency, this method does not check whether the network is actually connected, as
@@ -795,7 +802,7 @@ mod tests {
                 assert_eq!(
                     vec![
                         TestAction::Connect(client.host.clone()),
-                        TestAction::ClientAction("action.to_yaml()".into()),
+                        TestAction::ClientAction(serde_yaml::to_string(&action).unwrap()),
                     ],
                     session.actions,
                 );
@@ -819,7 +826,7 @@ mod tests {
                 assert_eq!(
                     vec![
                         TestAction::Connect(client.host.clone()),
-                        TestAction::ClientAction("action.to_yaml()".into()),
+                        TestAction::ClientAction(serde_yaml::to_string(&action).unwrap()),
                     ],
                     session.actions,
                 );
