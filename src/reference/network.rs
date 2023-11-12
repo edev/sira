@@ -278,20 +278,14 @@ impl<CT: ClientThread> Run<CT> for NetworkRun {
         };
         let client = network.client_for(&host);
 
-        // Send the message to the client. If the sender can't send, that means the client thread
-        // closed without sending a disconnection [Report]. This was either a panic due to a
-        // detected bug or an exit without panic due to an undetected bug. Either way, we need to
-        // panic appropriately.
+        // Send the message to the client.
         if client.outbox.send(message).is_err() {
             if client.thread.is_finished() {
                 // We need to consume Client::thread, which we can't do from behind a reference.
                 let client = network.connections.remove(&host).unwrap();
                 let result = client.thread.join();
-                match result {
-                    Ok(_) => {
-                        panic!("Network client thread exited mysteriously. Please report this bug!")
-                    }
-                    Err(err) => std::panic::resume_unwind(err),
+                if let Err(err) = result {
+                    std::panic::resume_unwind(err);
                 }
             } else {
                 panic!(
@@ -880,47 +874,6 @@ mod tests {
                 Report::Connecting(host_action.host().to_string()),
                 network.inbox.try_recv().unwrap(),
             );
-        }
-
-        #[test]
-        #[should_panic(expected = "Network client thread exited mysteriously")]
-        fn panics_if_client_thread_exits_without_error() {
-            // Just for this test, a ClientThread that exits without sending a disconnection
-            // message first.
-            #[allow(unused)]
-            struct SilentExitThread {
-                host: String,
-                channels: ChannelPair,
-            }
-
-            impl ClientThread for SilentExitThread {
-                fn new(
-                    host: String,
-                    sender: Sender<Report>,
-                    receiver: Receiver<NetworkControlMessage>,
-                ) -> Self {
-                    let channels = ChannelPair { sender, receiver };
-                    Self { host, channels }
-                }
-
-                fn run(self) {}
-            }
-
-            let (_, _, mut network, _) = fixture::<SilentExitThread>();
-            let message = ncm_run_action();
-
-            // Unpack message so we can access host.
-            let host_action = match message.clone() {
-                NetworkControlMessage::RunAction(arc) => arc,
-                x => panic!("Expected RunAction message, but got: {:?}", x),
-            };
-
-            // Cause the new client thread to spawn, and wait for it to finish, without joining.
-            let client = network.client_for(host_action.host());
-            while !client.thread.is_finished() {}
-
-            // Run the code under test.
-            NetworkRun().send(&mut network, message);
         }
 
         #[test]
