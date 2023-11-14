@@ -3,8 +3,6 @@
 #[cfg(doc)]
 use crate::core::plan::Plan;
 use crate::core::{manifest::Manifest, task::Task};
-#[cfg(doc)]
-use crate::executor::Executor;
 use regex::{NoExpand, Regex};
 use serde::{Deserialize, Serialize};
 #[cfg(doc)]
