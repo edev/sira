@@ -61,6 +61,12 @@ fn load_tasks(source: impl AsRef<Path>) -> anyhow::Result<Vec<Task>> {
     for document in Deserializer::from_reader(reader) {
         let mut task = Task::deserialize(document)?;
         task.source = Some(source.as_ref().to_path_buf());
+
+        // Deserializing produces actions in their most direct representations from the source, but
+        // we want to ensure that actions are split up into the smallest chunks possible so that
+        // the user gets the most granular feedback we can provide.
+        Action::split(&mut task.actions);
+
         tasks.push(task);
     }
     Ok(tasks)
@@ -341,9 +347,10 @@ mod tests {
                             ),
                             name: "apt install".to_owned(),
                             user: "root".to_owned(),
-                            actions: vec![Action::Shell(vec![
-                                "apt install -y $packages".to_owned()
-                            ])],
+                            actions: vec![
+                                Action::Shell(vec!["apt upgrade".to_owned()]),
+                                Action::Shell(vec!["apt install -y $packages".to_owned()]),
+                            ],
                             vars: [(
                                 "packages".to_owned(),
                                 "aptitude build-essential exa".to_owned(),

@@ -252,9 +252,10 @@ mod tests {
                                     ),
                                     name: "apt install".to_owned(),
                                     user: "root".to_owned(),
-                                    actions: vec![Action::Shell(vec![
-                                        "apt install -y $packages".to_owned()
-                                    ])],
+                                    actions: vec![
+                                        Action::Shell(vec!["apt upgrade".to_owned()]),
+                                        Action::Shell(vec!["apt install -y $packages".to_owned()]),
+                                    ],
                                     vars: [(
                                         "packages".to_owned(),
                                         "aptitude build-essential exa".to_owned(),

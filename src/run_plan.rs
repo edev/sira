@@ -514,10 +514,6 @@ mod tests {
             assert!(fixture.run_host_plan().await.is_err());
         }
 
-        // TODO Change it so an Action::Shell reports progress on each command individually.
-        // I believe this was previously handled by the 6000 lines of deleted code, and a different
-        // solution is needed now.
-
         #[tokio::test]
         async fn runs_all_actions_in_host_plan() {
             let mut fixture = Fixture::new();

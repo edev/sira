@@ -45,6 +45,56 @@ pub enum Action {
     },
 }
 
+impl Action {
+    /// Splits a list of [Action]s into as many individual [Action]s as possible.
+    ///
+    /// For example, an [Action::Shell] can contain many shell commands. To provide the most
+    /// granular feedback to the end user, it's best to split these commands into their own
+    /// [Action::Shell] values so that they can be processed individually.
+    ///
+    /// ```
+    /// # use sira::core::Action;
+    ///
+    /// let mut actions = vec![
+    ///     Action::Shell(vec!["echo hi".to_owned(), "echo bye".to_owned()]),
+    ///     Action::Upload {
+    ///         from: ".bashrc".to_owned(),
+    ///         to: ".".to_owned(),
+    ///     },
+    /// ];
+    ///
+    /// Action::split(&mut actions);
+    ///
+    /// let mut expected = vec![
+    ///     Action::Shell(vec!["echo hi".to_owned()]),
+    ///     Action::Shell(vec!["echo bye".to_owned()]),
+    ///     Action::Upload {
+    ///         from: ".bashrc".to_owned(),
+    ///         to: ".".to_owned(),
+    ///     },
+    /// ];
+    /// assert_eq!(expected, actions);
+    ///
+    /// ```
+    pub fn split(list: &mut Vec<Self>) {
+        use Action::*;
+        let mut output = vec![];
+        for source in list.iter() {
+            match source {
+                Shell(sublist) => output.extend(
+                    sublist
+                        .iter()
+                        .map(|command| Shell(vec![command.to_owned()])),
+                ),
+                action @ LineInFile { .. } | action @ Upload { .. } | action @ Download { .. } => {
+                    output.push(action.to_owned())
+                }
+            }
+        }
+        *list = output;
+    }
+}
+
 /// An [Action] in the context of a single [Manifest], [Task], and host.
 ///
 /// A [HostAction] is typically produced by running a [Plan]. The [HostAction] contains all the
@@ -247,6 +297,56 @@ mod tests {
     use super::*;
     use indexmap::IndexMap;
     use std::path::PathBuf;
+
+    mod split {
+        use super::*;
+
+        #[test]
+        fn works() {
+            use Action::*;
+
+            // Construct one of each enum variant, and for any variant that might be split,
+            // construct one that we expect to be split.
+            let mut list = vec![
+                Shell(vec!["a".to_string(), "b".to_string()]),
+                LineInFile {
+                    after: "c".to_string(),
+                    insert: vec!["d".to_string(), "e".to_string()],
+                    path: "f".to_string(),
+                },
+                Upload {
+                    from: "g".to_string(),
+                    to: "h".to_string(),
+                },
+                Download {
+                    from: "i".to_string(),
+                    to: "j".to_string(),
+                },
+            ];
+
+            let expected = vec![
+                Shell(vec!["a".to_string()]),
+                Shell(vec!["b".to_string()]),
+                LineInFile {
+                    after: "c".to_string(),
+                    insert: vec!["d".to_string(), "e".to_string()],
+                    path: "f".to_string(),
+                },
+                Upload {
+                    from: "g".to_string(),
+                    to: "h".to_string(),
+                },
+                Download {
+                    from: "i".to_string(),
+                    to: "j".to_string(),
+                },
+            ];
+
+            Action::split(&mut list);
+
+            assert_eq!(expected, list);
+        }
+    }
 
     mod host_action {
         use super::*;
