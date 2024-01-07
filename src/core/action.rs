@@ -105,8 +105,8 @@ impl Action {
 ///
 /// Note that this type has a lot of room for optimization. Speed shouldn't be a factor at the
 /// scale Sira is designed for, but it's worth noting briefly that this type makes an awful lot of
-/// copies. [HostAction] values get passed from [Executor] to all other parts of the program, so
-/// references are not a great fit.
+/// copies. [HostAction] values get passed throughout the program and across threads, so references
+/// are not a great fit.
 ///
 /// Optimizing this type is a good candidate for future work. An easy approach would be to pare
 /// down unneeded fields before making copies. For instance, with the [Manifest], you could strip
