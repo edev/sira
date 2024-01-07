@@ -65,7 +65,7 @@ fn load_tasks(source: impl AsRef<Path>) -> anyhow::Result<Vec<Task>> {
         // Deserializing produces actions in their most direct representations from the source, but
         // we want to ensure that actions are split up into the smallest chunks possible so that
         // the user gets the most granular feedback we can provide.
-        Action::split(&mut task.actions);
+        task.split_actions();
 
         tasks.push(task);
     }

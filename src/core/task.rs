@@ -49,3 +49,10 @@ pub struct Task {
     #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
     pub vars: IndexMap<String, String>,
 }
+
+impl Task {
+    /// Wrapper. Calls [Action::split] on [Self::actions].
+    pub fn split_actions(&mut self) {
+        Action::split(&mut self.actions);
+    }
+}
