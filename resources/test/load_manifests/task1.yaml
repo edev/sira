@@ -1,0 +1,12 @@
+---
+name: apt install
+user: root
+actions:
+  - shell:
+    - apt upgrade
+    - apt install -y $packages
+vars:
+  packages: >-
+    aptitude
+    build-essential
+    exa
