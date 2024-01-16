@@ -1,0 +1,7 @@
+---
+name: echo hi
+actions:
+  - shell:
+    - echo hi
+    - echo bye
+    - supermegasize antman

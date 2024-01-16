@@ -1,0 +1,5 @@
+name: echo hi
+hosts:
+  - localhost
+include:
+  - sample.task
