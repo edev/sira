@@ -1,0 +1,6 @@
+name: set host name
+user: root
+actions:
+  - shell:
+    - hostnamectl hostname zen3
+
