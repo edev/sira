@@ -587,9 +587,11 @@ mod tests {
                 Fixture::test_calls_client(
                     "line_in_file",
                     Action::LineInFile {
-                        after: "a".to_string(),
-                        insert: vec!["b".to_string(), "c".to_string()],
-                        path: "d".to_string(),
+                        path: "a".to_string(),
+                        line: "b".to_string(),
+                        pattern: None,
+                        after: None,
+                        indent: true,
                     },
                 )
                 .await
@@ -600,9 +602,11 @@ mod tests {
                 Fixture::test_client_returns_error(
                     "line_in_file",
                     Action::LineInFile {
-                        after: "a".to_string(),
-                        insert: vec!["b".to_string(), "c".to_string()],
-                        path: "d".to_string(),
+                        path: "a".to_string(),
+                        line: "b".to_string(),
+                        pattern: None,
+                        after: None,
+                        indent: true,
                     },
                 )
                 .await

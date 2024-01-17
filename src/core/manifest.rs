@@ -588,9 +588,11 @@ mod tests {
             let task_1_actions = vec![
                 Action::Shell(vec!["echo hi".into(), "pwd".into()]),
                 Action::LineInFile {
-                    after: "localhost".into(),
-                    insert: vec!["192.168.1.93 zen3".into()],
                     path: "/etc/hosts".into(),
+                    line: "192.168.1.93 zen3".into(),
+                    pattern: None,
+                    after: Some("localhost".into()),
+                    indent: true,
                 },
                 Action::Upload {
                     from: "from".into(),

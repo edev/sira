@@ -18,17 +18,99 @@ use std::sync::Arc;
 //
 // TODO Flesh out Actions. The current states are intentionally basic sketches.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 #[serde(remote = "Self")]
 pub enum Action {
     Shell(Vec<String>),
 
-    // I need to visit Ansible's docs to fill out this struct. A lot more needs to go here, I
-    // strongly suspect.
+    /// Replaces a line in a file or inserts a new line.
+    ///
+    /// # Behavior
+    ///
+    /// Sira will execute the first matching action from the following list:
+    ///
+    /// 1. If [line] is already present in the file, Sira will do nothing.
+    ///
+    /// 1. If [pattern] is set and matches a line in the file, Sira will replace that line's
+    ///    contents with [line]. If you wish this operation to be idempotent, please ensure that
+    ///    [pattern] matches [line].
+    ///
+    /// 1. If [after] is set and matches a line in the file, Sira will insert [line] right after
+    ///    the matching line.
+    ///
+    /// 1. Sira will insert [line] at the end of the file.
+    ///
+    /// For precise details of how Sira checks file lines against the fields of this [Action], see
+    /// the comments on the individual fields, especially [indent].
+    ///
+    /// [after]: Self::LineInFile::after
+    /// [indent]: Self::LineInFile::indent
+    /// [line]: Self::LineInFile::line
+    /// [pattern]: Self::LineInFile::pattern
     LineInFile {
-        after: String,
-        insert: Vec<String>,
+        /// The path to the file you wish to modify.
         path: String,
+
+        /// The line to install in the file.
+        ///
+        /// Matching: Sira checks whether this field matches the file line exactly, subject to the
+        /// behavior of [indent].
+        ///
+        /// [indent]: Self::LineInFile::indent
+        line: String,
+
+        /// The line in the file to replace with [line].
+        ///
+        /// Matching: Sira always matches this field as a substring of the file line.
+        ///
+        /// [line]: Self::LineInFile::line
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
+        pattern: Option<String>,
+
+        /// The line in the file after which Sira will insert [line] if it can't find an existing
+        /// line to replace.
+        ///
+        /// Matching: Sira always matches this field as a substring of the file line.
+        ///
+        /// [line]: Self::LineInFile::line
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
+        after: Option<String>,
+
+        /// Toggles automatic handling of leading white space. Defaults to `true`.
+        ///
+        /// This field affects both matching and replacing file lines with the goals of matching
+        /// existing indentation in a file whenever possible and freeing you from needing to think
+        /// about indentation in most situations.
+        ///
+        /// # Matching
+        ///
+        /// When comparing [line] to a file line, if [indent] is `true`, Sira will strip leading
+        /// white space from both values before comparing them.
+        ///
+        /// # Replacing
+        ///
+        /// When Sira matches [pattern] to a file line, if [indent] is `true`, Sira will replace
+        /// any leading white space in [line] with the file line's leading white space, thereby
+        /// matching the existing line's indentation.
+        ///
+        /// # Inserting
+        ///
+        /// When Sira finds no matching lines and inserts a new line, either by matching [after] or
+        /// at the end of the file, [indent] has no effect.
+        ///
+        /// If you wish to match indentation in the existing line when possible but also provide
+        /// default indentation when inserting a new line, leave [indent] at its default value and
+        /// add your desired default indentation to [line].
+        ///
+        /// [after]: Self::LineInFile::after
+        /// [indent]: Self::LineInFile::indent
+        /// [line]: Self::LineInFile::line
+        /// [pattern]: Self::LineInFile::pattern
+        #[serde(skip_serializing_if = "is_true")]
+        #[serde(default = "Action::default_indent")]
+        indent: bool,
     },
 
     // I need to add more fields, like user, group, and permissions.
@@ -125,6 +207,11 @@ impl Action {
             }
         }
         *list = output;
+    }
+
+    /// Provides the default indentation value when deserializing.
+    fn default_indent() -> bool {
+        true
     }
 }
 
@@ -302,13 +389,16 @@ impl HostAction {
                     commands.iter_mut().for_each(replace);
                 }
                 LineInFile {
-                    after,
-                    insert,
                     path,
+                    line,
+                    pattern,
+                    after,
+                    ..
                 } => {
-                    replace(after);
-                    insert.iter_mut().for_each(replace);
                     replace(path);
+                    replace(line);
+                    pattern.as_mut().map(replace);
+                    after.as_mut().map(replace);
                 }
                 Upload { from, to } => {
                     replace(from);
@@ -324,12 +414,141 @@ impl HostAction {
     }
 }
 
+/// Trivial function for use with `skip_serializing_if`.
+fn is_true(var: &bool) -> bool {
+    *var
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::fixtures::plan;
     use super::*;
     use indexmap::IndexMap;
     use std::path::PathBuf;
+
+    mod action {
+        use super::*;
+        mod serde {
+            use super::*;
+
+            fn check(yaml: &str, action: Action) {
+                assert_eq!(yaml, serde_yaml::to_string(&action).unwrap());
+                assert_eq!(action, serde_yaml::from_str(yaml).unwrap());
+            }
+
+            mod shell {
+                use super::*;
+
+                #[test]
+                fn works() {
+                    let yaml = "\
+                        shell:\n\
+                        - echo hi\n\
+                        - echo bye\n";
+                    let action = Action::Shell(vec!["echo hi".to_string(), "echo bye".to_string()]);
+                    check(yaml, action);
+                }
+
+                #[test]
+                #[should_panic(expected = "expected a sequence")]
+                fn requires_a_list() {
+                    // It would be awesome to be able to write:
+                    //
+                    //     shell: echo hi
+                    //
+                    // instead of:
+                    //
+                    //     shell:
+                    //     - echo hi
+                    //
+                    // However, at this time, this is not implemented. This test documents and
+                    // verifies the current state of implementation.
+                    let yaml = "shell: echo hi";
+                    let _: Action = serde_yaml::from_str(yaml).unwrap();
+                }
+            }
+
+            mod line_in_file {
+                use super::*;
+
+                #[test]
+                fn works() {
+                    let yaml = "\
+line_in_file:
+  path: a
+  line: b
+  pattern: c
+  after: d
+  indent: false\n";
+                    let action = Action::LineInFile {
+                        path: "a".to_string(),
+                        line: "b".to_string(),
+                        pattern: Some("c".to_string()),
+                        after: Some("d".to_string()),
+                        indent: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn pattern_defaults_to_none() {
+                    let yaml = "\
+line_in_file:
+  path: a
+  line: b
+  after: d
+  indent: false\n";
+                    let action = Action::LineInFile {
+                        path: "a".to_string(),
+                        line: "b".to_string(),
+                        pattern: None,
+                        after: Some("d".to_string()),
+                        indent: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn after_defaults_to_none() {
+                    let yaml = "\
+line_in_file:
+  path: a
+  line: b
+  pattern: c
+  indent: false\n";
+                    let action = Action::LineInFile {
+                        path: "a".to_string(),
+                        line: "b".to_string(),
+                        pattern: Some("c".to_string()),
+                        after: None,
+                        indent: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn indent_defaults_to_true() {
+                    let yaml = "\
+line_in_file:
+  path: a
+  line: b
+  pattern: c
+  after: d\n";
+                    let action = Action::LineInFile {
+                        path: "a".to_string(),
+                        line: "b".to_string(),
+                        pattern: Some("c".to_string()),
+                        after: Some("d".to_string()),
+                        indent: true,
+                    };
+                    check(yaml, action);
+                }
+            }
+
+            // TODO Add unit tests for Upload once it's fully fleshed out.
+            // TODO Add unit tests for Download once it's fully fleshed out.
+        }
+    }
 
     mod split {
         use super::*;
@@ -343,9 +562,11 @@ mod tests {
             let mut list = vec![
                 Shell(vec!["a".to_string(), "b".to_string()]),
                 LineInFile {
-                    after: "c".to_string(),
-                    insert: vec!["d".to_string(), "e".to_string()],
-                    path: "f".to_string(),
+                    path: "a".to_string(),
+                    line: "b".to_string(),
+                    pattern: Some("c".to_string()),
+                    after: Some("d".to_string()),
+                    indent: false,
                 },
                 Upload {
                     from: "g".to_string(),
@@ -361,9 +582,11 @@ mod tests {
                 Shell(vec!["a".to_string()]),
                 Shell(vec!["b".to_string()]),
                 LineInFile {
-                    after: "c".to_string(),
-                    insert: vec!["d".to_string(), "e".to_string()],
-                    path: "f".to_string(),
+                    path: "a".to_string(),
+                    line: "b".to_string(),
+                    pattern: Some("c".to_string()),
+                    after: Some("d".to_string()),
+                    indent: false,
                 },
                 Upload {
                     from: "g".to_string(),
@@ -535,9 +758,11 @@ mod tests {
                         actions: vec![
                             Shell(vec![action_string.clone()]),
                             LineInFile {
-                                after: action_string.clone(),
-                                insert: vec![action_string.clone()],
                                 path: action_string.clone(),
+                                line: action_string.clone(),
+                                pattern: Some(action_string.clone()),
+                                after: Some(action_string.clone()),
+                                indent: true,
                             },
                             Upload {
                                 from: action_string.clone(),
@@ -568,9 +793,11 @@ mod tests {
                     let expected = match action {
                         Shell(_) => Shell(vec![expected_string.clone()]),
                         LineInFile { .. } => LineInFile {
-                            after: expected_string.clone(),
-                            insert: vec![expected_string.clone()],
                             path: expected_string.clone(),
+                            line: expected_string.clone(),
+                            pattern: Some(expected_string.clone()),
+                            after: Some(expected_string.clone()),
+                            indent: true,
                         },
                         Upload { .. } => Upload {
                             from: expected_string.clone(),
