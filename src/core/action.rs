@@ -4,23 +4,22 @@
 use crate::core::plan::Plan;
 use crate::core::{manifest::Manifest, task::Task};
 use regex::{NoExpand, Regex};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(doc)]
 use std::sync::Arc;
 
 /// The types of actions that Sira can perform on a client.
-///
-/// # (De)serialization
-///
-/// As of this writing, I am not aware of a way to prevent [serde_yaml] from using YAML tag
-/// notation for enums when using them directly. [Task] overrides this by applying
-/// `#[serde(with = "serde_yaml::with::singleton_map_recursive")]` to [Task::actions]. If you use
-/// [Action] directly, you will run into this limitation. If you know how to resolve it, please
-/// open an issue or pull request!
-// TODO Try to fix the tagged enum notation issue described above.
+// In order to allow Action to (de)serialize using singleton map notation rather than externally
+// tagged notation, we adapt the method used here: https://github.com/dtolnay/serde-yaml/issues/363
+//
+// This method derives remote definitions for (de)serializing and then manually implements
+// Serialize and Deserialize using internal wrapper types that allow us to invoke the methods in
+// serde_yaml::with::singleton_map.
+//
 // TODO Flesh out Actions. The current states are intentionally basic sketches.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[serde(remote = "Self")]
 pub enum Action {
     Shell(Vec<String>),
 
@@ -43,6 +42,40 @@ pub enum Action {
         from: String,
         to: String,
     },
+}
+
+// Adapted from https://github.com/dtolnay/serde-yaml/issues/363. See comment on Action for more.
+impl Serialize for Action {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        struct ExternallyTaggedAction<'a>(&'a Action);
+        impl<'a> Serialize for ExternallyTaggedAction<'a> {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                Action::serialize(self.0, serializer)
+            }
+        }
+        serde_yaml::with::singleton_map::serialize(&ExternallyTaggedAction(self), serializer)
+    }
+}
+
+// Adapted from https://github.com/dtolnay/serde-yaml/issues/363. See comment on Action for more.
+impl<'de> Deserialize<'de> for Action {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ExternallyTaggedAction(Action);
+        impl<'de> Deserialize<'de> for ExternallyTaggedAction {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                Ok(ExternallyTaggedAction(Action::deserialize(deserializer)?))
+            }
+        }
+        let eta: ExternallyTaggedAction =
+            serde_yaml::with::singleton_map::deserialize(deserializer)?;
+        Ok(eta.0)
+    }
 }
 
 impl Action {
