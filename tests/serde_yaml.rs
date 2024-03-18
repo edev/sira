@@ -22,7 +22,7 @@ pub struct Override<Y, V> {
 
 /// For internal use by Overrides. Creates override setters.
 ///
-/// Given `setter!(<field_name>, <type>), creates a setter of the form:
+/// Given `setter!(<field_name>, <type>)`, creates a setter of the form:
 ///
 /// `fn <field_name>(mut self, overrides: Override<&'static str, <type>> -> Self`
 ///
