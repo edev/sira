@@ -8,6 +8,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(doc)]
 use std::sync::Arc;
 
+pub mod line_in_file;
+pub use line_in_file::line_in_file;
+
 /// The types of actions that Sira can perform on a client.
 // In order to allow Action to (de)serialize using singleton map notation rather than externally
 // tagged notation, we adapt the method used here: https://github.com/dtolnay/serde-yaml/issues/363
@@ -17,6 +20,7 @@ use std::sync::Arc;
 // serde_yaml::with::singleton_map.
 //
 // TODO Flesh out Actions. The current states are intentionally basic sketches.
+// TODO Sort actions alphabetically.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(remote = "Self")]
@@ -32,21 +36,66 @@ pub enum Action {
     /// 1. If [line] is already present in the file, Sira will do nothing.
     ///
     /// 1. If [pattern] is set and matches a line in the file, Sira will replace that line's
-    ///    contents with [line]. If you wish this operation to be idempotent, please ensure that
-    ///    [pattern] matches [line].
+    ///    contents with [line].
     ///
     /// 1. If [after] is set and matches a line in the file, Sira will insert [line] right after
     ///    the matching line.
     ///
     /// 1. Sira will insert [line] at the end of the file.
     ///
-    /// For precise details of how Sira checks file lines against the fields of this [Action], see
-    /// the comments on the individual fields, especially [indent].
+    /// For precise details of how Sira matches file lines against [line], [pattern], and [after],
+    /// see the comments on these fields as well as [indent].
+    ///
+    /// # Line endings and multi-line matching
+    ///
+    /// [Action::LineInFile] only officially supports Unix-style line endings. If you try to modify
+    /// files with non-Unix line endings, you will most likely wind up with mixed line endings or
+    /// other issues. This use case has undergone basic testing but is not officially supported.
+    /// Proceed at your own risk. If you do encounter bugs with this use case, please feel free to
+    /// report them, but they may or may not be fixed.
+    ///
+    /// Multi-line matching explicitly is not supported and will not work.
+    ///
+    /// If you have a compelling use case for either of these features, please feel free to open an
+    /// issue to discuss adding it.
+    ///
+    /// # Regular expressions
+    ///
+    /// [Action::LineInFile] does not support regular expression matching. Most likely, it never
+    /// will. There are three reasons for this. First, the author has not personally encountered a
+    /// need for such a feature. Second, tools like `sed` may serve this purpose adequately. Third,
+    /// supporting regular expressions here would make the interface significantly less ergonomic
+    /// and clear.
+    ///
+    /// If you have a compelling use case for a version of [Action::LineInFile] that supports
+    /// regular expressions, please open an issue so that we may discuss it and perhaps design an
+    /// appropriate new [Action] to support it, e.g. `Action::RegexInFile`.
+    ///
+    /// # Special cases
+    ///
+    /// If the file is empty or contains only [Unicode whitespace], and [line] contains characters
+    /// other than [Unicode whitespace], then the file's contents will be replaced with [line]
+    /// followed by a newline character.
+    ///
+    /// If Sira touches the last line in the file, then the resulting file will always end with a
+    /// newline character.* Otherwise, the last line will remain unchanged.
+    ///
+    /// If [pattern] is an empty string, i.e. `Some("".to_string())`, and Sira reaches the step of
+    /// matching [pattern], then it will match and replace the first line of the file.
+    ///
+    /// If [after] is an empty string, and Sira reaches the step of matching [after], then it will
+    /// match the first line of the file. For convenience, Sira will insert [line] as the first
+    /// line in the file.
+    ///
+    /// <em>* Sira will actually try to preserve a Mac-style line ending (`\r`) on the final line,
+    /// if it finds one, but if this describes your files, then Sira really isn't a good fit for
+    /// your use case. For details, please refer to the tests that cover this feature.</em>
     ///
     /// [after]: Self::LineInFile::after
     /// [indent]: Self::LineInFile::indent
     /// [line]: Self::LineInFile::line
     /// [pattern]: Self::LineInFile::pattern
+    /// [Unicode whitespace]: https://en.wikipedia.org/wiki/Unicode_character_property#Whitespace
     LineInFile {
         /// The path to the file you wish to modify.
         path: String,
@@ -54,7 +103,8 @@ pub enum Action {
         /// The line to install in the file.
         ///
         /// Matching: Sira checks whether this field matches the file line exactly, subject to the
-        /// behavior of [indent].
+        /// behavior of [indent]. This check ignores trailing white space on both this field and
+        /// the file line.
         ///
         /// [indent]: Self::LineInFile::indent
         line: String,
@@ -68,8 +118,7 @@ pub enum Action {
         #[serde(default)]
         pattern: Option<String>,
 
-        /// The line in the file after which Sira will insert [line] if it can't find an existing
-        /// line to replace.
+        /// The line in the file after which Sira will insert [line].
         ///
         /// Matching: Sira always matches this field as a substring of the file line.
         ///
@@ -84,21 +133,23 @@ pub enum Action {
         /// existing indentation in a file whenever possible and freeing you from needing to think
         /// about indentation in most situations.
         ///
-        /// # Matching
+        /// # Line
         ///
         /// When comparing [line] to a file line, if [indent] is `true`, Sira will strip leading
         /// white space from both values before comparing them.
         ///
-        /// # Replacing
+        /// # Pattern
         ///
-        /// When Sira matches [pattern] to a file line, if [indent] is `true`, Sira will replace
-        /// any leading white space in [line] with the file line's leading white space, thereby
-        /// matching the existing line's indentation.
+        /// When comparing [pattern] to a file line, Sira checks whether [pattern] is a substring
+        /// of the file line. If a line matches, and [indent] is `true`, then Sira will replace any
+        /// leading white space in [line] with the file line's leading white space, thereby
+        /// matching the existing line's indentation. If [indent] is `false`, then Sira will
+        /// replace the file line with [line] as-is.
         ///
-        /// # Inserting
+        /// # After & default
         ///
-        /// When Sira finds no matching lines and inserts a new line, either by matching [after] or
-        /// at the end of the file, [indent] has no effect.
+        /// When Sira inserts a new line, either by matching [after] or as the default action,
+        /// [indent] has no effect.
         ///
         /// If you wish to match indentation in the existing line when possible but also provide
         /// default indentation when inserting a new line, leave [indent] at its default value and
