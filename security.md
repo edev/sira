@@ -35,8 +35,8 @@ Thus, if both keys are present and properly protected (e.g. by passwords), both 
 ```
 # Manifest private key (only on development machine)
 #
-# Manage this key the same way as your other SSH keys on your development user account. Sira does not interact directly
-# with this key. The following is merely a suggestion.
+# Manage this key the same way as your other SSH keys on your development user account. Sira does
+# not interact directly with this key. The following is merely a suggestion.
 ~/.ssh/sira/manifest
 
 # Manifest public key (only on control node)
