@@ -34,7 +34,10 @@ Thus, if both keys are present and properly protected (e.g. by passwords), both 
 
 ```
 # Manifest private key (only on development machine)
-/etc/sira/keys/manifest
+#
+# Manage this key the same way as your other SSH keys on your development user account. Sira does not interact directly
+# with this key. The following is merely a suggestion.
+~/.ssh/sira/manifest
 
 # Manifest public key (only on control node)
 /etc/sira/keys/manifest.pub
@@ -51,3 +54,18 @@ Thus, if both keys are present and properly protected (e.g. by passwords), both 
 # Action key allowed signers file (only on managed nodes)
 /etc/sira/allowed_signers/action
 ```
+
+# Notes on file permissions
+
+Sira does not mandate a specific approach to securing the contents of `/etc/sira`. You are free to implement whatever security scheme works best for you. However, Sira does apply certain defaults when asked to bootstrap a node; these are listed below. These are also the minimal permissions required for Sira to run.
+
+| File or directory                   | Description                  | Nodes   | Owner:group        | Permissions |
+| :---------------------------------- | :--------------------------- | :-----  | :----------------- | :---------- |
+| /etc/sira/                          | Sira configuration directory | Both    | root:\<sira-user\> | 0050        |
+| /etc/sira/allowed\_signers/         | Allowed signers directory    | Both    | root:\<sira-user\> | 0050        |
+| /etc/sira/keys/                     | Sira SSH key directory       | Both    | root:\<sira-user\> | 0050        |
+| /etc/sira/allowed\_signers/action   | Action key allowed signers   | Managed | root:\<sira-user\> | 0040        |
+| /etc/sira/allowed\_signers/manifest | Manifest key allowed signers | Control | root:\<sira-user\> | 0040        |
+| /etc/sira/keys/action               | Action private key           | Control | root:\<sira-user\> | 0040        |
+| /etc/sira/keys/action.pub           | Action public key            | Managed | root:\<sira-user\> | 0040        |
+| /etc/sira/keys/manifest.pub         | Manifest public key          | Control | root:\<sira-user\> | 0040        |
