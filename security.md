@@ -63,9 +63,9 @@ Sira does not mandate a specific approach to securing the contents of `/etc/sira
 | :---------------------------------- | :--------------------------- | :-----  | :----------------- | :---------- |
 | /etc/sira/                          | Sira configuration directory | Both    | root:\<sira-user\> | 0050        |
 | /etc/sira/allowed\_signers/         | Allowed signers directory    | Both    | root:\<sira-user\> | 0050        |
-| /etc/sira/keys/                     | Sira SSH key directory       | Both    | root:\<sira-user\> | 0050        |
 | /etc/sira/allowed\_signers/action   | Action key allowed signers   | Managed | root:\<sira-user\> | 0040        |
 | /etc/sira/allowed\_signers/manifest | Manifest key allowed signers | Control | root:\<sira-user\> | 0040        |
+| /etc/sira/keys/                     | Sira SSH key directory       | Both    | root:\<sira-user\> | 0050        |
 | /etc/sira/keys/action               | Action private key           | Control | root:\<sira-user\> | 0040        |
 | /etc/sira/keys/action.pub           | Action public key            | Managed | root:\<sira-user\> | 0040        |
 | /etc/sira/keys/manifest.pub         | Manifest public key          | Control | root:\<sira-user\> | 0040        |
