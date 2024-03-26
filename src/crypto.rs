@@ -58,9 +58,7 @@ pub fn sign(file: &[u8], key: impl AsRef<Path>) -> anyhow::Result<SigningOutcome
         );
     } else if key.as_ref().to_str().unwrap().trim().is_empty() {
         // An empty key arguably a variant on a directory traversal attack. It won't result in
-        // unsafe behavior, but if we don't catch it here, it will result in unhelpful or harmful
-        // error messages, presumably a permission error on the directory telling the user,
-        // incorrectly, to chmod the directory to 0400.
+        // unsafe behavior, but if we don't catch it here, we will return an unhelpful error.
         bail!("key should not be empty");
     }
 
