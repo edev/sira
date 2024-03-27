@@ -2,7 +2,7 @@
 
 use crate::config;
 use anyhow::{anyhow, bail, Context};
-use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -15,6 +15,43 @@ const ALLOWED_SIGNERS_DIR: &str = "allowed_signers";
 
 // TODO Consider replacing key and allowed_signers args to sign and verify with &'static str to
 // guarantee no directory traversal attacks and enable compiler optimizations.
+
+/// Returns the path to the signature for a given file.
+///
+/// Does not check whether the file or its signature exist.
+pub fn signature_path(file: impl AsRef<Path>) -> PathBuf {
+    let mut sig: OsString = file.as_ref().to_owned().into();
+    sig.push(".sig");
+    sig.into()
+}
+
+/// Checks for the presence of an `allowed_signers` file of a given name.
+///
+/// Returns an error if `name` violates the restrictions set out in [verify].
+pub fn allowed_signers_installed(name: impl AsRef<Path>) -> anyhow::Result<bool> {
+    // Guard against directory traversal attacks. This code is already under test with `verify`.
+    guard_allowed_signers_against_directory_traversal(&name)?;
+
+    let mut path = resource_dir(ALLOWED_SIGNERS_DIR);
+    path.push(name);
+
+    // The docs aren't clear about when this check will fail. I think returning an error is the
+    // safest call, but if users run into issues in the wild, we can adapt based on that domain
+    // knowledge.
+    Ok(path.try_exists()?)
+}
+
+/// Returns the path to the `allowed_signers` file of a given name.
+///
+/// Does not check whether this file exists.
+pub fn allowed_signers_path(name: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
+    // Guard against directory traversal attacks. This code is already under test with `verify`.
+    guard_allowed_signers_against_directory_traversal(&name)?;
+
+    let mut path = resource_dir(ALLOWED_SIGNERS_DIR);
+    path.push(name);
+    Ok(path)
+}
 
 /// Returns the path to the directory for a resource type.
 ///
@@ -35,6 +72,31 @@ pub enum SigningOutcome {
 
     /// The key was not installed. This is fine.
     KeyNotFound,
+}
+
+// Guard against directory traversal attacks. We don't plan to accept user-supplied values, so this
+// is just a hyper-restrictive cursory check for extra safety.
+fn guard_allowed_signers_against_directory_traversal(
+    allowed_signers: impl AsRef<Path>,
+) -> anyhow::Result<()> {
+    if allowed_signers.as_ref().to_str().is_none()
+        || allowed_signers
+            .as_ref()
+            .to_str()
+            .unwrap()
+            .chars()
+            .any(|c| !c.is_alphabetic())
+    {
+        bail!(
+            "allowed_signers should only contain alphabetic characters: {:?}",
+            allowed_signers.as_ref(),
+        );
+    } else if allowed_signers.as_ref().to_str().unwrap().trim().is_empty() {
+        // An empty allowed_signers arguably a variant on a directory traversal attack. It won't
+        // cause unsafe behavior, but if we don't catch it here, we will return an unhelpful error.
+        bail!("allowed_signers should not be empty");
+    }
+    Ok(())
 }
 
 /// Cryptographically signs the contents of a buffer with an SSH key, if the key exists.
@@ -151,44 +213,27 @@ pub fn sign(file: &[u8], key: impl AsRef<Path>) -> anyhow::Result<SigningOutcome
 // TODO Add a public helper function in this module to check whether a key is present.
 pub fn verify(
     file: &[u8],
-    signature: impl AsRef<OsStr>,
+    signature: impl AsRef<Path>,
     allowed_signers: impl AsRef<Path>,
     identity: impl AsRef<str>,
 ) -> anyhow::Result<()> {
-    // Guard against directory traversal attacks. We don't plan to accept user-supplied values,
-    // so this is just a hyper-restrictive cursory check for extra safety.
-    if allowed_signers.as_ref().to_str().is_none()
-        || allowed_signers
-            .as_ref()
-            .to_str()
-            .unwrap()
-            .chars()
-            .any(|c| !c.is_alphabetic())
-    {
-        bail!(
-            "allowed_signers should only contain alphabetic characters: {:?}",
-            allowed_signers.as_ref(),
-        );
-    } else if allowed_signers.as_ref().to_str().unwrap().trim().is_empty() {
-        // An empty allowed_signers arguably a variant on a directory traversal attack. It won't
-        // cause unsafe behavior, but if we don't catch it here, we will return an unhelpful error.
-        bail!("allowed_signers should not be empty");
-    }
-
-    let allowed_signers_dir = resource_dir(ALLOWED_SIGNERS_DIR);
-    let allowed_signers_file = allowed_signers_dir.join(allowed_signers);
-
-    // There is a TOCTOU issue with checking for allowed_signers_file's existence here and then calling
-    // ssh-keygen. Since ssh-keygen and this function both operate safely regardless of this check,
-    // there shouldn't be a security concern. The only critical issue is that if ssh-keygen returns
-    // an error, then we must return that error.
+    // There is a TOCTOU issue with checking for allowed_signers_file's existence here and then
+    // calling ssh-keygen. Since ssh-keygen and this function both operate safely regardless of
+    // this check, there shouldn't be a security concern. The only critical issue is that if
+    // ssh-keygen returns an error, then we must return that error.
     //
-    // The goal with this check is simply to offer a more helpful error message than the default
+    // The goal with these checks is simply to offer a more helpful error message than the default
     // from OpenSSH.
-    if let Ok(false) = allowed_signers_file.try_exists() {
+    let allowed_signers_file = allowed_signers_path(&allowed_signers)?;
+    if !allowed_signers_installed(&allowed_signers)? {
         bail!(
             "please install the required allowed_signers file: {}",
             allowed_signers_file.to_string_lossy(),
+        );
+    } else if let Ok(false) = signature.as_ref().try_exists() {
+        bail!(
+            "missing signature file: {}",
+            signature.as_ref().to_string_lossy(),
         );
     }
 
@@ -206,7 +251,7 @@ pub fn verify(
         .arg(identity.as_ref())
         .args(["-n", "sira"])
         .arg("-s")
-        .arg(signature)
+        .arg(signature.as_ref())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

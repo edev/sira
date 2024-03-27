@@ -37,7 +37,7 @@ fn sign_file(
 // Reads a file from disk and calls `verify`.
 fn verify_file(
     file: impl AsRef<Path>,
-    signature: impl AsRef<OsStr>,
+    signature: impl AsRef<Path>,
     allowed_signers: impl AsRef<Path>,
     identity: impl AsRef<str>,
 ) -> anyhow::Result<()> {
