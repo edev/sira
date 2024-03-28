@@ -30,10 +30,7 @@ impl Plan {
         }
     }
 
-    /// This function is meant as the easy, default entry point for executors.
-    ///
-    /// This function doesn't actually know how to parse; it simply calls
-    /// [crate::core::manifest::load_manifests] for each file.
+    /// Loads a [Plan] from a set of manifest files and checks the files' cryptographic signatures.
     #[allow(unused_variables)]
     pub fn from_manifest_files(files: &[impl AsRef<Path>]) -> anyhow::Result<Self> {
         let mut manifests = vec![];

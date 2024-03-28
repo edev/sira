@@ -209,8 +209,6 @@ pub fn sign(file: &[u8], key: impl AsRef<Path>) -> anyhow::Result<SigningOutcome
 /// of `ssh-keygen -Y verify` and related implementation considerations, this function requires a
 /// signature. Therefore, it is up to the caller to reject unsigned values when the relevant public
 /// key is present.
-//
-// TODO Add a public helper function in this module to check whether a key is present.
 pub fn verify(
     file: &[u8],
     signature: impl AsRef<Path>,
@@ -276,7 +274,11 @@ pub fn verify(
         .context("failed to wait_with_output for ssh-keygen")?;
     match output.status.success() {
         true => Ok(()),
-        false => Err(anyhow!("{}", String::from_utf8_lossy(&output.stderr))),
+        false => Err(anyhow!(
+            "Error verifying signature for file {}:\n{}",
+            signature.as_ref().to_string_lossy(),
+            String::from_utf8_lossy(&output.stderr),
+        )),
     }
 }
 
