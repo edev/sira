@@ -8,7 +8,7 @@ pub fn config_dir() -> PathBuf {
     // Omit the leading slash so that PathBuf::push appends instead of replacing.
     const CONFIG_DIR: &str = "etc/sira";
 
-    let mut path = PathBuf::new();
+    let mut path = PathBuf::from("/");
 
     #[cfg(test)]
     {
