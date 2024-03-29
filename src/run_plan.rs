@@ -2,12 +2,15 @@
 
 use crate::core::plan::HostPlanIntoIter;
 use crate::core::Plan;
+use crate::crypto::{self, SigningOutcome};
 
 mod client;
 use client::*;
 
 mod report;
 use report::*;
+
+const ACTION_SIGNING_KEY: &str = "action";
 
 /// Runs a [Plan] on each of the [Plan]'s hosts in parallel.
 ///
@@ -80,10 +83,18 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
         let action = action.compile();
         let yaml = serde_yaml::to_string(&action).unwrap();
 
+        // Lazily sign yaml only if needed.
+        fn sign(yaml: &str) -> anyhow::Result<Option<Vec<u8>>> {
+            match crypto::sign(yaml.as_bytes(), ACTION_SIGNING_KEY)? {
+                SigningOutcome::Signed(sig) => Ok(Some(sig)),
+                SigningOutcome::KeyNotFound => Ok(None),
+            }
+        }
+
         use crate::core::Action::*;
         let output = match &action {
-            Shell(_) => client.shell(&yaml).await?,
-            LineInFile { .. } => client.line_in_file(&yaml).await?,
+            Shell(_) => client.shell(&yaml, sign(&yaml)?).await?,
+            LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
             Upload { from, to } => client.upload(from, to).await?,
             Download { from, to } => client.download(from, to).await?,
         };
@@ -176,30 +187,64 @@ mod tests {
 
                 // DRY helper for run_host_plan tests that verify the mapping between an Action
                 // enum variant and a ClientInterface method.
-                pub async fn test_calls_client(method_name: &'static str, action: Action) {
+                pub async fn test_calls_client(
+                    method_name: &'static str,
+                    action: Action,
+                    signed: bool,
+                ) {
                     let mut fixture = Fixture::new();
                     let yaml = serde_yaml::to_string(&action).unwrap();
                     fixture.plan.manifests[0].include[0].actions = vec![action];
+                    let signature = match signed {
+                        true => match crypto::sign(yaml.as_bytes(), ACTION_SIGNING_KEY).unwrap() {
+                            SigningOutcome::Signed(sig) => {
+                                Some(String::from_utf8(sig).expect("signature was not UTF-8"))
+                            }
+                            SigningOutcome::KeyNotFound => None,
+                        },
+                        false => None,
+                    };
 
                     fixture.run_host_plan().await.unwrap();
 
                     let recorded_commands = fixture.recorded_commands();
-                    let expected = CommandRecord { method_name, yaml };
+                    let expected = CommandRecord {
+                        method_name,
+                        yaml,
+                        signature,
+                    };
                     assert_eq!(expected, recorded_commands[0]);
                 }
 
                 // DRY helper for run_host_plan tests that verify the error handling on
                 // ClientInterface methods.
-                pub async fn test_client_returns_error(method_name: &'static str, action: Action) {
+                pub async fn test_client_returns_error(
+                    method_name: &'static str,
+                    action: Action,
+                    signed: bool,
+                ) {
                     let mut fixture = Fixture::new();
                     let yaml = serde_yaml::to_string(&action).unwrap();
                     fixture.plan.manifests[0].include[0].actions = vec![action];
                     fixture.client_factory().fail_client_command(&fixture.host);
+                    let signature = match signed {
+                        true => match crypto::sign(yaml.as_bytes(), ACTION_SIGNING_KEY).unwrap() {
+                            SigningOutcome::Signed(sig) => {
+                                Some(String::from_utf8(sig).expect("signature was not UTF-8"))
+                            }
+                            SigningOutcome::KeyNotFound => None,
+                        },
+                        false => None,
+                    };
 
                     assert!(fixture.run_host_plan().await.is_err());
 
                     let recorded_commands = fixture.recorded_commands();
-                    let expected = CommandRecord { method_name, yaml };
+                    let expected = CommandRecord {
+                        method_name,
+                        yaml,
+                        signature,
+                    };
                     assert_eq!(expected, recorded_commands[0]);
                 }
             }
@@ -295,6 +340,7 @@ mod tests {
             pub struct CommandRecord {
                 pub method_name: &'static str,
                 pub yaml: String,
+                pub signature: Option<String>,
             }
 
             #[derive(Clone, Debug)]
@@ -312,12 +358,25 @@ mod tests {
 
             #[async_trait]
             impl ClientInterface for TestClient {
-                async fn shell(&mut self, yaml: &str) -> Result<Output, openssh::Error> {
-                    self.record("shell", yaml, openssh::Error::Disconnected)
+                async fn shell(
+                    &mut self,
+                    yaml: &str,
+                    signature: Option<Vec<u8>>,
+                ) -> Result<Output, openssh::Error> {
+                    self.record("shell", yaml, signature, openssh::Error::Disconnected)
                 }
 
-                async fn line_in_file(&mut self, yaml: &str) -> Result<Output, openssh::Error> {
-                    self.record("line_in_file", yaml, openssh::Error::Disconnected)
+                async fn line_in_file(
+                    &mut self,
+                    yaml: &str,
+                    signature: Option<Vec<u8>>,
+                ) -> Result<Output, openssh::Error> {
+                    self.record(
+                        "line_in_file",
+                        yaml,
+                        signature,
+                        openssh::Error::Disconnected,
+                    )
                 }
 
                 async fn upload(&mut self, from: &str, to: &str) -> io::Result<Output> {
@@ -326,7 +385,7 @@ mod tests {
                         to: to.to_owned(),
                     };
                     let yaml = serde_yaml::to_string(&action).unwrap();
-                    self.record("upload", yaml, io::Error::other("expected"))
+                    self.record("upload", yaml, None, io::Error::other("expected"))
                 }
 
                 async fn download(&mut self, from: &str, to: &str) -> io::Result<Output> {
@@ -335,7 +394,7 @@ mod tests {
                         to: to.to_owned(),
                     };
                     let yaml = serde_yaml::to_string(&action).unwrap();
-                    self.record("download", yaml, io::Error::other("expected"))
+                    self.record("download", yaml, None, io::Error::other("expected"))
                 }
             }
 
@@ -345,11 +404,14 @@ mod tests {
                     &mut self,
                     caller: &'static str,
                     yaml: impl Into<String>,
+                    signature: Option<Vec<u8>>,
                     error: E,
                 ) -> Result<Output, E> {
                     self.records.lock().unwrap().push(CommandRecord {
                         method_name: caller,
                         yaml: yaml.into(),
+                        signature: signature
+                            .map(|s| String::from_utf8(s).expect("signature was not UTF-8")),
                     });
 
                     if self.should_fail {
@@ -518,10 +580,8 @@ mod tests {
         async fn runs_all_actions_in_host_plan() {
             let mut fixture = Fixture::new();
 
-            // As of writing, Action::Shell processes through this code as a single Action, even if
-            // there are multiple commands in the Shell's Vec, and the crate::core::fixtures::plan
-            // method provides one Action::Shell with two commands. Thus, for this one test where
-            // it matters, we provide our own Actions.
+            // For simplicity, we provide our own, unsigned Actions instead of using the two
+            // Action::Shell values that ship with Fixture.
             fixture.plan.manifests[0].include[0].actions = vec![
                 Action::Download {
                     from: "a".to_string(),
@@ -547,6 +607,7 @@ mod tests {
                     method_name: "download",
                     yaml: serde_yaml::to_string(&fixture.plan.manifests[0].include[0].actions[0])
                         .unwrap(),
+                    signature: None,
                 },
                 commands.next().unwrap(),
             );
@@ -555,6 +616,7 @@ mod tests {
                     method_name: "upload",
                     yaml: serde_yaml::to_string(&fixture.plan.manifests[0].include[0].actions[1])
                         .unwrap(),
+                    signature: None,
                 },
                 commands.next().unwrap(),
             );
@@ -565,8 +627,12 @@ mod tests {
 
             #[tokio::test]
             async fn calls_client_shell() {
-                Fixture::test_calls_client("shell", Action::Shell(vec!["send_it".to_string()]))
-                    .await
+                Fixture::test_calls_client(
+                    "shell",
+                    Action::Shell(vec!["send_it".to_string()]),
+                    true,
+                )
+                .await
             }
 
             #[tokio::test]
@@ -574,6 +640,7 @@ mod tests {
                 Fixture::test_client_returns_error(
                     "shell",
                     Action::Shell(vec!["send_it".to_string()]),
+                    true,
                 )
                 .await
             }
@@ -593,6 +660,7 @@ mod tests {
                         after: None,
                         indent: true,
                     },
+                    true,
                 )
                 .await
             }
@@ -608,6 +676,7 @@ mod tests {
                         after: None,
                         indent: true,
                     },
+                    true,
                 )
                 .await
             }
@@ -624,6 +693,7 @@ mod tests {
                         from: "a".to_string(),
                         to: "b".to_string(),
                     },
+                    false,
                 )
                 .await
             }
@@ -636,6 +706,7 @@ mod tests {
                         from: "a".to_string(),
                         to: "b".to_string(),
                     },
+                    false,
                 )
                 .await
             }
@@ -652,6 +723,7 @@ mod tests {
                         from: "a".to_string(),
                         to: "b".to_string(),
                     },
+                    false,
                 )
                 .await
             }
@@ -664,6 +736,7 @@ mod tests {
                         from: "a".to_string(),
                         to: "b".to_string(),
                     },
+                    false,
                 )
                 .await
             }
