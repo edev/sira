@@ -198,15 +198,20 @@ pub enum Action {
         to: String,
 
         /// The final owner of the file on the managed node. Defaults to `root`.
+        #[serde(skip_serializing_if = "Action::user_or_group_is_default")]
+        #[serde(default = "Action::default_user_and_group")]
         user: String,
 
         /// The final group of the file on the managed node. Defaults to `root`.
+        #[serde(skip_serializing_if = "Action::user_or_group_is_default")]
+        #[serde(default = "Action::default_user_and_group")]
         group: String,
 
         /// The final permissions of the file on the managed node, in any form that `chmod` will
         /// accept. If this value is unspecified, then `chmod` will not be run, and the file will
         /// have the Sira user's default permissions. (Note that these might vary from the final
         /// user's default permissions.)
+        #[serde(default)]
         permissions: Option<String>,
 
         /// Whether to overwrite an existing file at [Action::Upload::to]. Defaults to `true`.
@@ -214,6 +219,8 @@ pub enum Action {
         /// If `true`, this option causes Sira to invoke `mv -n` instead of `mv`. Sira's behavior
         /// follows from your system's implementation of `mv -n`: most likely, in the event that a
         /// file exists at the destination, Sira will silently decline to move the file.
+        #[serde(skip_serializing_if = "is_true")]
+        #[serde(default = "Action::default_overwrite")]
         overwrite: bool,
     },
 
@@ -309,6 +316,23 @@ impl Action {
 
     /// Provides the default indentation value when deserializing.
     fn default_indent() -> bool {
+        true
+    }
+
+    const DEFAULT_USER_AND_GROUP: &'static str = "root";
+
+    /// Provides the default user and group when deserializing.
+    fn default_user_and_group() -> String {
+        Self::DEFAULT_USER_AND_GROUP.to_string()
+    }
+
+    /// Tells serde whether to skip serializing a user or group (because it's the default value).
+    fn user_or_group_is_default(value: &str) -> bool {
+        value == Self::DEFAULT_USER_AND_GROUP
+    }
+
+    /// Provides the default value for [Action::Upload::overwrite] when deserializing.
+    fn default_overwrite() -> bool {
         true
     }
 }
