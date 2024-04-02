@@ -21,10 +21,18 @@ pub trait ManageClient<CI: ClientInterface> {
 #[async_trait]
 pub trait ClientInterface {
     /// Send one or more shell commands to be run on the client.
-    async fn shell(&mut self, yaml: &str) -> Result<Output, openssh::Error>;
+    async fn shell(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error>;
 
     /// Modify a file on the client.
-    async fn line_in_file(&mut self, yaml: &str) -> Result<Output, openssh::Error>;
+    async fn line_in_file(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error>;
 
     /// Upload a file from the Sira control node to the client over SSH.
     async fn upload(&mut self, from: &str, to: &str) -> io::Result<Output>;
@@ -55,12 +63,20 @@ pub struct Client {
 
 #[async_trait]
 impl ClientInterface for Client {
-    async fn shell(&mut self, yaml: &str) -> Result<Output, openssh::Error> {
-        self.client_command(yaml).await
+    async fn shell(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error> {
+        self.client_command(yaml, signature).await
     }
 
-    async fn line_in_file(&mut self, yaml: &str) -> Result<Output, openssh::Error> {
-        self.client_command(yaml).await
+    async fn line_in_file(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error> {
+        self.client_command(yaml, signature).await
     }
 
     async fn upload(&mut self, from: &str, to: &str) -> io::Result<Output> {
@@ -76,8 +92,19 @@ impl ClientInterface for Client {
 
 impl Client {
     /// Invoke `sira-client` on the remote host and pass it `yaml`.
-    async fn client_command(&mut self, yaml: &str) -> Result<Output, openssh::Error> {
-        self.session.command("sira-client").arg(yaml).output().await
+    async fn client_command(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error> {
+        let mut command = self.session.command("sira-client");
+        command.arg(yaml);
+        if let Some(sig) = signature {
+            let sig = String::from_utf8(sig)
+                .expect("expected signature to be Base64-encoded, but it was not valid UTF-8");
+            command.arg(&sig);
+        }
+        command.output().await
     }
 
     /// Invoke `scp` on the Sira control node.

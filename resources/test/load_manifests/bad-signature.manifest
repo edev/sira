@@ -1,0 +1,25 @@
+---
+name: desktops
+hosts:
+  - t470
+  - zen3
+include:
+  - task1.yaml
+  - task2.yaml
+vars:
+  alpha: a
+  beta: b
+
+---
+name: t470
+hosts:
+  - t470
+include:
+  - t470.yaml
+
+---
+name: zen3
+hosts:
+  - zen3
+include:
+  - zen3.yaml

@@ -18,7 +18,9 @@
 //!
 //! 2. Ahem, this not yet written. Pardon the construction dust.
 
+pub mod config;
 pub mod core;
+pub mod crypto;
 pub mod run_plan;
 
 #[doc(inline)]
