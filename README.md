@@ -4,7 +4,7 @@ Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing sm
 
 ## Project status
 
-This project is in **initial development.** It is not yet functional and ready for use on any level whatsoever.
+This project is in **initial development.** It is not yet functional and is not ready for use on any level whatsoever.
 
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
@@ -46,13 +46,7 @@ Sira's guiding principles are as follows:
 
 ## Operating system support
 
-I test and use Sira on Debian Linux using amd64 CPUs. I believe it should work on BSD and perhaps other Unix-like OSes, but I have not personally tested them. It absolutely **will not** manage systems that are binary-incompatible with the host. To the best of my knowledge, it also will not work on Windows.
-
-For the most part, the code itself is platform-agnostic. If you have a specific use case in mind and wish to contribute to expanding Sira's operating system support, you are welcome to reach out. The following are the known impediments to cross-platform Sira:
-
-1. Sira uses the [openssh](https://crates.io/crates/openssh) crate, which saves me quite a bit of reading and possibly a lot of work. It works well for my own use case. However, its documentation explicitly warns that it is only compatible with Unix-like operating systems.
-
-1. Sira is written in pure Rust, which has many benefits. It also transmits a client to each host it manages, and that client is written in Rust and compiled to binary. I'm sure it is possible to compile an array of client binaries for different operating systems and transfer different clients to different operating systems, but I have not developed such a system. This work will need to be done before Sira can manage computers running varied operating systems.
+I test and use Sira on Debian Linux using amd64 CPUs. I believe it should work on BSD and perhaps other Unix-like OSes, but I have not personally tested them. It absolutely **will not** manage systems that are binary-incompatible with the host. It also absolutely **will not** work on Windows.
 
 ## License
 
