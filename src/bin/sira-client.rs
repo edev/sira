@@ -1,9 +1,11 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use shlex::Shlex;
 use sira::core::Action;
 use sira::crypto;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
+use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
 
 /// The name of the allowed signers file used to verify actions.
@@ -49,17 +51,30 @@ fn main() -> anyhow::Result<()> {
             helpful error message to the user",
         );
 
-        // TODO Implement a more permanent and secure version of this! This is only temporary, for
-        // (pre-)alpha development!
-        let signature_path: &str = ".sira-signature";
-        fs::write(signature_path, signature)?;
+        // Use the native `mktemp` utility to securely store the signature.
+        let signature_path: OsString = {
+            let output = Command::new("mktemp").output()?;
+            if output.status.success() {
+                OsString::from_vec(output.stdout)
+            } else {
+                bail!(
+                    "mktemp exited with error:\n{:?}",
+                    OsString::from_vec(output.stderr),
+                );
+            }
+        };
+        fs::write(&signature_path, signature)
+            .context("sira-client encountered an error writing action signature to disk")?;
 
         crypto::verify(
             yaml.as_bytes(),
-            signature_path,
+            &signature_path,
             ALLOWED_SIGNERS_FILE,
             "sira",
         )?;
+
+        fs::remove_file(&signature_path)
+            .context("sira-client encountered an error removing action signature file")?;
     }
 
     let action: Action = serde_yaml::from_str(&yaml)?;
