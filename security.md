@@ -4,7 +4,7 @@ Sira's security comes from a combination of OpenSSH's security and the architect
 
 # Logging into managed nodes
 
-Sira logs into managed nodes the same way you would log into them yourself: it asks OpenSSH to connect to the target system, and your OpenSSH configuration does the rest. Sira deliberately disallows password-based SSH authentication, leaving the more secure key-based authentication as the logical choice for most users. (In Sira's documention, we refer to this as the **client access key**.) However, you are free to configure your nodes to use some other form of authentication within OpenSSH if you prefer.
+Sira logs into managed nodes the same way you would log into them yourself: it asks OpenSSH to connect to the target system, and your OpenSSH configuration does the rest. Sira deliberately disallows password-based SSH authentication, leaving the more secure key-based authentication as the logical choice for most users. (In Sira's documention, we refer to this as the **client access key**.) However, you are free to configure your nodes to use some other form of authentication within OpenSSH if you prefer, as long as Sira on the control node can access managed nodes without requiring a password at runtime.
 
 # Running actions on managed nodes
 
@@ -30,35 +30,18 @@ Stepping backwards in the chain of trust, Sira supports signing manifest and tas
 
 Thus, if both keys are present and properly protected (e.g. by passwords), both the control node and managed nodes will refuse to execute instructions from unauthorized parties, even in the event that an attacker gains access to these nodes.
 
-# File locations
+# File locations and permissions
 
-```
-# Manifest private key (only on development machine)
-#
-# Manage this key the same way as your other SSH keys on your development user account. Sira does
-# not interact directly with this key. The following is merely a suggestion.
-~/.ssh/sira/manifest
-
-# Manifest key allowed signers file (only on control node)
-/etc/sira/allowed_signers/manifest
-
-# Action private key (only on control node)
-/etc/sira/keys/action
-
-# Action key allowed signers file (only on managed nodes)
-/etc/sira/allowed_signers/action
-```
-
-# Notes on file permissions
-
-Sira does not mandate a specific approach to securing the contents of `/etc/sira`. You are free to implement whatever security scheme works best for you. However, Sira does apply certain defaults when asked to bootstrap a node; these are listed below. These are also the minimal permissions required for Sira to run.
+The files that Sira uses for signing and verifying manifests, tasks, and actions are listed in the table below. Sira does not mandate a specific approach to securing the contents of `/etc/sira`; you are free to implement whatever security scheme works best for you. However, Sira does apply certain defaults when asked to bootstrap a node (NYI); these are listed below.
 
 | File or directory                   | Description                    | Nodes   | Owner:group        | Permissions |
 | :---------------------------------- | :----------------------------- | :------ | :----------------- | :---------- |
-| /etc/sira/                          | Sira configuration directory   | Both    | root:\<sira-user\> | 0050        |
-| /etc/sira/allowed\_signers/         | Allowed signers directory      | Both    | root:\<sira-user\> | 0050        |
-| /etc/sira/allowed\_signers/action   | Authorizes action public key   | Managed | root:\<sira-user\> | 0040        |
-| /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:\<sira-user\> | 0040        |
-| /etc/sira/keys/                     | Sira SSH key directory         | Both    | root:\<sira-user\> | 0050        |
-| /etc/sira/keys/action               | Action private key             | Control | root:\<sira-user\> | 0040        |
-| /etc/sira/keys/action.pub           | Action public key              | Control | root:\<sira-user\> | 0040        |
+| /etc/sira/                          | Sira configuration directory   | Both    | root:\<sira-user\> | 0750        |
+| /etc/sira/allowed\_signers/         | Allowed signers directory      | Both    | root:\<sira-user\> | 0750        |
+| /etc/sira/allowed\_signers/action   | Authorizes action public key   | Managed | root:\<sira-user\> | 0440        |
+| /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:\<sira-user\> | 0440        |
+| /etc/sira/keys/                     | Sira SSH key directory         | Control | root:\<sira-user\> | 0750        |
+| /etc/sira/keys/action               | Action private key             | Control | root:\<sira-user\> | 0440        |
+| /etc/sira/keys/action.pub           | Action public key              | Control | root:\<sira-user\> | 0440        |
+
+The one key not listed above is the **manifest private key**, which belongs on the development machine. You are free to manage and secure this key alongside your other SSH keys.
