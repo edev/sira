@@ -61,3 +61,4 @@ Sira does not mandate a specific approach to securing the contents of `/etc/sira
 | /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:\<sira-user\> | 0040        |
 | /etc/sira/keys/                     | Sira SSH key directory         | Both    | root:\<sira-user\> | 0050        |
 | /etc/sira/keys/action               | Action private key             | Control | root:\<sira-user\> | 0040        |
+| /etc/sira/keys/action.pub           | Action public key              | Control | root:\<sira-user\> | 0040        |
