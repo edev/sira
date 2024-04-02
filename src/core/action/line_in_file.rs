@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::fs;
 use std::io;
 
-/// Implements [Action::LineInFile].
+/// Implements client-side logic for [Action::LineInFile].
 ///
 /// # Returns
 ///

@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context};
 use shlex::Shlex;
+use sira::core::action::line_in_file;
 use sira::core::Action;
 use sira::crypto;
 use std::env;
@@ -98,7 +99,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        LineInFile { .. } => bail!("not yet implemented"),
+        LineInFile { .. } => line_in_file(&action)?,
         Upload { .. } | Download { .. } => {
             bail!("this action is implemented on sira, not sira-client");
         }
