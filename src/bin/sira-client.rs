@@ -54,7 +54,12 @@ fn main() -> anyhow::Result<()> {
         let signature_path: &str = ".sira-signature";
         fs::write(signature_path, signature)?;
 
-        crypto::verify(yaml.as_bytes(), signature_path, ALLOWED_SIGNERS_FILE, "sira")?;
+        crypto::verify(
+            yaml.as_bytes(),
+            signature_path,
+            ALLOWED_SIGNERS_FILE,
+            "sira",
+        )?;
     }
 
     let action: Action = serde_yaml::from_str(&yaml)?;
