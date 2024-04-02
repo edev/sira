@@ -35,7 +35,13 @@ pub trait ClientInterface {
     ) -> Result<Output, openssh::Error>;
 
     /// Upload a file from the Sira control node to the client over SSH.
-    async fn upload(&mut self, from: &str, to: &str) -> io::Result<Output>;
+    async fn upload(
+        &mut self,
+        from: &str,
+        to: &str,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> anyhow::Result<Output>;
 
     /// Download a file from the client to the Sira control node over SSH.
     async fn download(&mut self, from: &str, to: &str) -> io::Result<Output>;
@@ -79,9 +85,16 @@ impl ClientInterface for Client {
         self.client_command(yaml, signature).await
     }
 
-    async fn upload(&mut self, from: &str, to: &str) -> io::Result<Output> {
+    async fn upload(
+        &mut self,
+        from: &str,
+        to: &str,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> anyhow::Result<Output> {
         let to = format!("{}:{}", self.host, to);
-        self.scp(from, &to).await
+        let _ = self.scp(from, &to).await?;
+        Ok(self.client_command(yaml, signature).await?)
     }
 
     async fn download(&mut self, from: &str, to: &str) -> io::Result<Output> {

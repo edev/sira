@@ -515,16 +515,26 @@ impl HostAction {
                     line,
                     pattern,
                     after,
-                    ..
+                    indent: _,
                 } => {
                     replace(path);
                     replace(line);
                     pattern.as_mut().map(replace);
                     after.as_mut().map(replace);
                 }
-                Upload { from, to } => {
+                Upload {
+                    from,
+                    to,
+                    user,
+                    group,
+                    permissions,
+                    overwrite: _,
+                } => {
                     replace(from);
                     replace(to);
+                    replace(user);
+                    replace(group);
+                    permissions.as_mut().map(replace);
                 }
                 Download { from, to } => {
                     replace(from);

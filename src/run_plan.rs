@@ -95,7 +95,7 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
         let output = match &action {
             Shell(_) => client.shell(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
-            Upload { from, to } => client.upload(from, to).await?,
+            Upload { from, to, .. } => client.upload(from, to, &yaml, sign(&yaml)?).await?,
             Download { from, to } => client.download(from, to).await?,
         };
 
