@@ -10,7 +10,7 @@ use client::*;
 mod report;
 use report::*;
 
-const ACTION_SIGNING_KEY: &str = "action";
+pub const ACTION_SIGNING_KEY: &str = "action";
 
 /// Runs a [Plan] on each of the [Plan]'s hosts in parallel.
 ///
