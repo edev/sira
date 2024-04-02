@@ -164,10 +164,57 @@ pub enum Action {
         indent: bool,
     },
 
-    // I need to add more fields, like user, group, and permissions.
+    /// Transfers a file from the control node to managed nodes.
+    ///
+    /// The transfer takes place in two stages:
+    /// 1. Sira transfers the file on the control node to a temporary file owned by the Sira user
+    ///    in the Sira user's home directory (or wherever OpenSSH `scp` sessions start).
+    /// 1. Then, Sira invokes `sira-client` on the managed node to change the file's owner
+    ///    (i.e. user), group, and permissions and move it into place.
+    ///
+    /// # Security considerations
+    ///
+    /// When the file is initially transferred to the managed node, it will be in the Sira user's
+    /// home directory with default permissions. If you need to protect files from being prying
+    /// eyes during this stage, you have several options. First, you may wish to restrict the Sira
+    /// user's home directory, e.g. to `700` or `770` permissions. Second, you may choose to store
+    /// the file in encrypted form on the control node and decrypt it on the managed hode after
+    /// transferring it, perhaps using [Action::Shell] to run the decryption while storing the
+    /// decryption key securely on the control node.
     Upload {
+        /// The path to the source file, i.e. the file on the control node.
+        ///
+        /// This path may be relative or absolute. If the path is relative, it is relative to the
+        /// directory from which you invoke Sira, **not** the task file that contains the action.
         from: String,
+
+        /// The final path of the file on the managed node.
+        ///
+        /// This path may be relative or absolute. If the path is relative, it is relative to the
+        /// directory in which `ssh` sessions for the Sira user start; this is usually the Sira
+        /// user's home directory.
+        ///
+        /// The parent directory must exist; if it does not exist, this [Action] will fail.
         to: String,
+
+        /// The final owner of the file on the managed node. Defaults to `root`.
+        user: String,
+
+        /// The final group of the file on the managed node. Defaults to `root`.
+        group: String,
+
+        /// The final permissions of the file on the managed node, in any form that `chmod` will
+        /// accept. If this value is unspecified, then `chmod` will not be run, and the file will
+        /// have the Sira user's default permissions. (Note that these might vary from the final
+        /// user's default permissions.)
+        permissions: Option<String>,
+
+        /// Whether to overwrite an existing file at [Action::Upload::to]. Defaults to `true`.
+        ///
+        /// If `true`, this option causes Sira to invoke `mv -n` instead of `mv`. Sira's behavior
+        /// follows from your system's implementation of `mv -n`: most likely, in the event that a
+        /// file exists at the destination, Sira will silently decline to move the file.
+        overwrite: bool,
     },
 
     // I need to add more fields, like user, group, and permissions.

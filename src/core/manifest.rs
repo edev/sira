@@ -72,6 +72,8 @@ fn verify(source: impl AsRef<Path>, source_file: &[u8], file_type: &str) -> anyh
 /// Loads [Manifest] values from a manifest file.
 ///
 /// Verifies the signatures on `source` and any task files that `source` includes.
+// TODO Ensure that this function properly sets base_path for each manifest file so that tasks are
+// relative to each file rather than the first file. Add this to the test suite.
 pub fn load_manifests(source: impl AsRef<Path>) -> anyhow::Result<Vec<Manifest>> {
     let mut manifests = vec![];
     let source_file = fs::read(&source)?;
@@ -161,6 +163,9 @@ pub struct Manifest {
     /// [Task]s (typically loaded from task files) that comprise this manifest.
     ///
     /// Order is preserved from the source file. Tasks are executed in order.
+    ///
+    /// When loading [Manifest] values loaded from files, any included task file paths are relative
+    /// to the manifest files that contain them.
     pub include: Vec<Task>,
 
     /// [Manifest]-level variables, which will eventually be compiled when actions are run.
