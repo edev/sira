@@ -1,0 +1,7 @@
+---
+name: desktops
+hosts:
+  - t470
+  - zen3
+include:
+  - bad-signature.task

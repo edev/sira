@@ -1,0 +1,8 @@
+---
+name: desktops
+hosts:
+  - t470
+  - zen3
+include:
+  - t470.yaml
+  - unsigned.task
