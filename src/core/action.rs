@@ -211,6 +211,7 @@ pub enum Action {
         /// accept. If this value is unspecified, then `chmod` will not be run, and the file will
         /// have the Sira user's default permissions. (Note that these might vary from the final
         /// user's default permissions.)
+        #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(default)]
         permissions: Option<String>,
 
@@ -685,7 +686,111 @@ line_in_file:
                 }
             }
 
-            // TODO Add unit tests for Upload once it's fully fleshed out.
+            mod upload {
+                use super::*;
+
+                #[test]
+                fn works() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  group: d
+  permissions: e
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn user_defaults_to_root() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  group: d
+  permissions: e
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "root".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn group_defaults_to_root() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  permissions: e
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "root".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn permissions_defaults_to_none() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  group: d
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: None,
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn overwrite_defaults_to_true() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  group: d
+  permissions: e\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: true,
+                    };
+                    check(yaml, action);
+                }
+            }
+
             // TODO Add unit tests for Download once it's fully fleshed out.
         }
     }
