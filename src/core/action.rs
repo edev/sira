@@ -280,6 +280,10 @@ impl Action {
     ///     Action::Upload {
     ///         from: ".bashrc".to_owned(),
     ///         to: ".".to_owned(),
+    ///         user: "root".to_owned(),
+    ///         group: "root".to_owned(),
+    ///         permissions: None,
+    ///         overwrite: false,
     ///     },
     /// ];
     ///
@@ -291,6 +295,10 @@ impl Action {
     ///     Action::Upload {
     ///         from: ".bashrc".to_owned(),
     ///         to: ".".to_owned(),
+    ///         user: "root".to_owned(),
+    ///         group: "root".to_owned(),
+    ///         permissions: None,
+    ///         overwrite: false,
     ///     },
     /// ];
     /// assert_eq!(expected, actions);
@@ -703,10 +711,14 @@ line_in_file:
                 Upload {
                     from: "g".to_string(),
                     to: "h".to_string(),
+                    user: "h".to_string(),
+                    group: "i".to_string(),
+                    permissions: Some("j".to_string()),
+                    overwrite: true,
                 },
                 Download {
-                    from: "i".to_string(),
-                    to: "j".to_string(),
+                    from: "k".to_string(),
+                    to: "l".to_string(),
                 },
             ];
 
@@ -723,10 +735,14 @@ line_in_file:
                 Upload {
                     from: "g".to_string(),
                     to: "h".to_string(),
+                    user: "h".to_string(),
+                    group: "i".to_string(),
+                    permissions: Some("j".to_string()),
+                    overwrite: true,
                 },
                 Download {
-                    from: "i".to_string(),
-                    to: "j".to_string(),
+                    from: "k".to_string(),
+                    to: "l".to_string(),
                 },
             ];
 
@@ -899,6 +915,10 @@ line_in_file:
                             Upload {
                                 from: action_string.clone(),
                                 to: action_string.clone(),
+                                user: action_string.clone(),
+                                group: action_string.clone(),
+                                permissions: Some(action_string.clone()),
+                                overwrite: true,
                             },
                             Download {
                                 from: action_string.clone(),
@@ -934,6 +954,10 @@ line_in_file:
                         Upload { .. } => Upload {
                             from: expected_string.clone(),
                             to: expected_string.clone(),
+                            user: expected_string.clone(),
+                            group: expected_string.clone(),
+                            permissions: Some(expected_string.clone()),
+                            overwrite: true,
                         },
                         Download { .. } => Download {
                             from: expected_string.clone(),

@@ -717,6 +717,10 @@ mod tests {
                 Action::Upload {
                     from: "from".into(),
                     to: "to".into(),
+                    user: "user".into(),
+                    group: "group".into(),
+                    permissions: Some("777".into()),
+                    overwrite: true,
                 },
                 Action::Download {
                     from: "from".into(),
