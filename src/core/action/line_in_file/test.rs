@@ -53,11 +53,7 @@ macro_rules! check {
 #[test]
 #[should_panic(expected = "not a LineInFile")]
 fn if_action_is_wrong_type_panics() {
-    line_in_file(&Action::Upload {
-        from: "from".to_string(),
-        to: "to".to_string(),
-    })
-    .unwrap();
+    line_in_file(&Action::Shell(vec!["uh-oh".to_string()])).unwrap();
 }
 
 #[test]
