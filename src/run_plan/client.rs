@@ -103,13 +103,14 @@ impl ClientInterface for Client {
 }
 
 impl Client {
-    /// Invoke `sira-client` on the remote host and pass it `yaml`.
+    /// Invoke `sudo /opt/sira/bin/sira-client <yaml> <signature>` on the remote host.
     async fn client_command(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> Result<Output, openssh::Error> {
-        let mut command = self.session.command("sira-client");
+        let mut command = self.session.command("sudo");
+        command.arg("/opt/sira/bin/sira-client");
         command.arg(yaml);
         if let Some(sig) = signature {
             let sig = String::from_utf8(sig)

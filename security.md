@@ -12,6 +12,14 @@ For some actions, Sira's workflow involves running commands on the control node.
 
 `sira-client` must be owned by `root:root` with `0700` permissions. As part of bootstrapping a node, you must give the user as whom Sira logs in (we'll call this **the Sira user**) permission to run `sira-client` via `sudo` without requiring a password. This is the only shell command that the control node runs directly on managed nodes; `sira-client` handles the rest. The Sira user requires no other special permissions; for instance, it *does not* need unrestricted `sudo` access.
 
+```
+# Example configuration (edit with visudo):
+
+# Allow <user> to run /opt/sira/bin/sira-client as root:root without entering a password.
+# Note that sudoers applies the last matched entry. If this user is already a sudoer, modify the existing entry instead.
+<user>  ALL=(root:root) NOPASSWD:/opt/sira/bin/sira-client
+```
+
 Funneling all local client actions through `sira-client` has at least two important security benefits. First, it provides access control: `sira-client` can verify that requested actions are actually authorized. (This is optional and is described below.) Second, it opens the smallest possible window through which to access administrative functions on managed nodes.
 
 Two alternatives to this scheme were considered and rejected:
