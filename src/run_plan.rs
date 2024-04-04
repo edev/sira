@@ -95,7 +95,7 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
         let output = match &action {
             Shell(_) => client.shell(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
-            Upload { from, to } => client.upload(from, to).await?,
+            Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
             Download { from, to } => client.download(from, to).await?,
         };
 
@@ -124,6 +124,21 @@ mod tests {
 
     pub mod fixtures {
         use super::*;
+
+        // If `signed`, tries to sign `yaml` and returns the result of that attempt. If the
+        // signing key isn't found (which is not an error condition), or `signed` is `false`,
+        // returns `None`.
+        pub fn maybe_sign(yaml: &str, signed: bool) -> Option<String> {
+            match signed {
+                true => match crypto::sign(yaml.as_bytes(), ACTION_SIGNING_KEY).unwrap() {
+                    SigningOutcome::Signed(sig) => {
+                        Some(String::from_utf8(sig).expect("signature was not UTF-8"))
+                    }
+                    SigningOutcome::KeyNotFound => None,
+                },
+                false => None,
+            }
+        }
 
         pub mod fixture {
             use super::*;
@@ -195,15 +210,7 @@ mod tests {
                     let mut fixture = Fixture::new();
                     let yaml = serde_yaml::to_string(&action).unwrap();
                     fixture.plan.manifests[0].include[0].actions = vec![action];
-                    let signature = match signed {
-                        true => match crypto::sign(yaml.as_bytes(), ACTION_SIGNING_KEY).unwrap() {
-                            SigningOutcome::Signed(sig) => {
-                                Some(String::from_utf8(sig).expect("signature was not UTF-8"))
-                            }
-                            SigningOutcome::KeyNotFound => None,
-                        },
-                        false => None,
-                    };
+                    let signature = maybe_sign(&yaml, signed);
 
                     fixture.run_host_plan().await.unwrap();
 
@@ -227,15 +234,7 @@ mod tests {
                     let yaml = serde_yaml::to_string(&action).unwrap();
                     fixture.plan.manifests[0].include[0].actions = vec![action];
                     fixture.client_factory().fail_client_command(&fixture.host);
-                    let signature = match signed {
-                        true => match crypto::sign(yaml.as_bytes(), ACTION_SIGNING_KEY).unwrap() {
-                            SigningOutcome::Signed(sig) => {
-                                Some(String::from_utf8(sig).expect("signature was not UTF-8"))
-                            }
-                            SigningOutcome::KeyNotFound => None,
-                        },
-                        false => None,
-                    };
+                    let signature = maybe_sign(&yaml, signed);
 
                     assert!(fixture.run_host_plan().await.is_err());
 
@@ -379,13 +378,25 @@ mod tests {
                     )
                 }
 
-                async fn upload(&mut self, from: &str, to: &str) -> io::Result<Output> {
-                    let action = Action::Upload {
-                        from: from.to_owned(),
-                        to: to.to_owned(),
-                    };
-                    let yaml = serde_yaml::to_string(&action).unwrap();
-                    self.record("upload", yaml, None, io::Error::other("expected"))
+                async fn upload(
+                    &mut self,
+                    from: &str,
+                    yaml: &str,
+                    signature: Option<Vec<u8>>,
+                ) -> anyhow::Result<Output> {
+                    // Sanity check.
+                    let action: Action = serde_yaml::from_str(yaml).unwrap();
+                    match action {
+                        Action::Upload { from: af, .. } => assert_eq!(from, af),
+                        x => panic!("expected Action::Upload but got:\n{x:#?}"),
+                    }
+
+                    // anyhow::Error doesn't implement std::error::Error. Meanwhile, upload returns
+                    // an anyhow::Result, and record requires and returns Error/Result. To solve
+                    // this incompatibility, we have to map_err. The error output from rustc isn't
+                    // very helpful on this issue.
+                    self.record("upload", yaml, signature, io::Error::other("expected"))
+                        .map_err(Into::into)
                 }
 
                 async fn download(&mut self, from: &str, to: &str) -> io::Result<Output> {
@@ -400,7 +411,7 @@ mod tests {
 
             impl TestClient {
                 // Records a call to a ClientInterface method.
-                pub fn record<E: Error>(
+                pub fn record<E: Error + Send + Sync + 'static>(
                     &mut self,
                     caller: &'static str,
                     yaml: impl Into<String>,
@@ -583,14 +594,8 @@ mod tests {
             // For simplicity, we provide our own, unsigned Actions instead of using the two
             // Action::Shell values that ship with Fixture.
             fixture.plan.manifests[0].include[0].actions = vec![
-                Action::Download {
-                    from: "a".to_string(),
-                    to: "b".to_string(),
-                },
-                Action::Upload {
-                    from: "c".to_string(),
-                    to: "d".to_string(),
-                },
+                Action::Shell(vec!["one".to_string()]),
+                Action::Shell(vec!["two".to_string()]),
             ];
 
             fixture.run_host_plan().await.unwrap();
@@ -602,21 +607,26 @@ mod tests {
                 .unwrap();
             let mut commands = locked_client_commands.iter();
 
+            let yaml =
+                serde_yaml::to_string(&fixture.plan.manifests[0].include[0].actions[0]).unwrap();
+            let signature = maybe_sign(&yaml, true);
             assert_eq!(
                 &CommandRecord {
-                    method_name: "download",
-                    yaml: serde_yaml::to_string(&fixture.plan.manifests[0].include[0].actions[0])
-                        .unwrap(),
-                    signature: None,
+                    method_name: "shell",
+                    yaml,
+                    signature,
                 },
                 commands.next().unwrap(),
             );
+
+            let yaml =
+                serde_yaml::to_string(&fixture.plan.manifests[0].include[0].actions[1]).unwrap();
+            let signature = maybe_sign(&yaml, true);
             assert_eq!(
                 &CommandRecord {
-                    method_name: "upload",
-                    yaml: serde_yaml::to_string(&fixture.plan.manifests[0].include[0].actions[1])
-                        .unwrap(),
-                    signature: None,
+                    method_name: "shell",
+                    yaml,
+                    signature,
                 },
                 commands.next().unwrap(),
             );
@@ -692,8 +702,12 @@ mod tests {
                     Action::Upload {
                         from: "a".to_string(),
                         to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: true,
                     },
-                    false,
+                    true,
                 )
                 .await
             }
@@ -705,8 +719,12 @@ mod tests {
                     Action::Upload {
                         from: "a".to_string(),
                         to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: true,
                     },
-                    false,
+                    true,
                 )
                 .await
             }
@@ -765,6 +783,10 @@ mod tests {
                 Action::Upload {
                     from: "a".to_string(),
                     to: "b".to_string(),
+                    user: "c".to_string(),
+                    group: "d".to_string(),
+                    permissions: Some("e".to_string()),
+                    overwrite: true,
                 },
                 Action::Download {
                     from: "c".to_string(),

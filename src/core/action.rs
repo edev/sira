@@ -8,6 +8,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(doc)]
 use std::sync::Arc;
 
+/// The relative path to the temporary file that the `sira` and `sira-client` both use when
+/// uploading or downloading files.
+pub const FILE_TRANSFER_PATH: &str = ".sira-transfer";
+
 pub mod line_in_file;
 pub use line_in_file::line_in_file;
 
@@ -164,10 +168,68 @@ pub enum Action {
         indent: bool,
     },
 
-    // I need to add more fields, like user, group, and permissions.
+    /// Transfers a file from the control node to managed nodes.
+    ///
+    /// The transfer takes place in two stages:
+    /// 1. Sira transfers the file on the control node to a temporary file owned by the Sira user
+    ///    in the Sira user's home directory (or wherever OpenSSH `scp` sessions start).
+    /// 1. Then, Sira invokes `sira-client` on the managed node to change the file's owner
+    ///    (i.e. user), group, and permissions and move it into place.
+    ///
+    /// # Security considerations
+    ///
+    /// When the file is initially transferred to the managed node, it will be in the Sira user's
+    /// home directory with default permissions. If you need to protect files from being prying
+    /// eyes during this stage, you have several options. First, you may wish to restrict the Sira
+    /// user's home directory, e.g. to `700` or `770` permissions. Second, you may choose to store
+    /// the file in encrypted form on the control node and decrypt it on the managed hode after
+    /// transferring it, perhaps using [Action::Shell] to run the decryption while storing the
+    /// decryption key securely on the control node.
     Upload {
+        /// The path to the source file, i.e. the file on the control node.
+        ///
+        /// This path may be relative or absolute. If the path is relative, it is relative to the
+        /// directory from which you invoke Sira, **not** the task file that contains the action.
         from: String,
+
+        /// The final path of the file on the managed node.
+        ///
+        /// This path may be relative or absolute. If the path is relative, it is relative to the
+        /// directory in which `ssh` sessions for the Sira user start; this is usually the Sira
+        /// user's home directory.
+        ///
+        /// The parent directory must exist; if it does not exist, this [Action] will fail.
         to: String,
+
+        /// The final owner of the file on the managed node. Defaults to `root`.
+        #[serde(skip_serializing_if = "Action::user_or_group_is_default")]
+        #[serde(default = "Action::default_user_and_group")]
+        user: String,
+
+        /// The final group of the file on the managed node. Defaults to `root`.
+        #[serde(skip_serializing_if = "Action::user_or_group_is_default")]
+        #[serde(default = "Action::default_user_and_group")]
+        group: String,
+
+        /// The final permissions of the file on the managed node, in any form that `chmod` will
+        /// accept. If this value is unspecified, then `chmod` will not be run, and the file will
+        /// have the Sira user's default permissions. (Note that these might vary from the final
+        /// user's default permissions.)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
+        permissions: Option<String>,
+
+        /// Whether to overwrite an existing file at [Action::Upload::to]. Defaults to `true`.
+        ///
+        /// If `true`, this option causes Sira to invoke `mv -n` instead of `mv`. Sira's behavior
+        /// follows from your system's implementation of `mv -n`: most likely, in the event that a
+        /// file exists at the destination, Sira will silently decline to move the file.
+        ///
+        /// If this property is `false` and the file already exists, then the user, group, and
+        /// permissions **will not be updated**. The existing file will remain untouched.
+        #[serde(skip_serializing_if = "is_true")]
+        #[serde(default = "Action::default_overwrite")]
+        overwrite: bool,
     },
 
     // I need to add more fields, like user, group, and permissions.
@@ -226,6 +288,10 @@ impl Action {
     ///     Action::Upload {
     ///         from: ".bashrc".to_owned(),
     ///         to: ".".to_owned(),
+    ///         user: "root".to_owned(),
+    ///         group: "root".to_owned(),
+    ///         permissions: None,
+    ///         overwrite: false,
     ///     },
     /// ];
     ///
@@ -237,6 +303,10 @@ impl Action {
     ///     Action::Upload {
     ///         from: ".bashrc".to_owned(),
     ///         to: ".".to_owned(),
+    ///         user: "root".to_owned(),
+    ///         group: "root".to_owned(),
+    ///         permissions: None,
+    ///         overwrite: false,
     ///     },
     /// ];
     /// assert_eq!(expected, actions);
@@ -262,6 +332,23 @@ impl Action {
 
     /// Provides the default indentation value when deserializing.
     fn default_indent() -> bool {
+        true
+    }
+
+    const DEFAULT_USER_AND_GROUP: &'static str = "root";
+
+    /// Provides the default user and group when deserializing.
+    fn default_user_and_group() -> String {
+        Self::DEFAULT_USER_AND_GROUP.to_string()
+    }
+
+    /// Tells serde whether to skip serializing a user or group (because it's the default value).
+    fn user_or_group_is_default(value: &str) -> bool {
+        value == Self::DEFAULT_USER_AND_GROUP
+    }
+
+    /// Provides the default value for [Action::Upload::overwrite] when deserializing.
+    fn default_overwrite() -> bool {
         true
     }
 }
@@ -444,16 +531,26 @@ impl HostAction {
                     line,
                     pattern,
                     after,
-                    ..
+                    indent: _,
                 } => {
                     replace(path);
                     replace(line);
                     pattern.as_mut().map(replace);
                     after.as_mut().map(replace);
                 }
-                Upload { from, to } => {
+                Upload {
+                    from,
+                    to,
+                    user,
+                    group,
+                    permissions,
+                    overwrite: _,
+                } => {
                     replace(from);
                     replace(to);
+                    replace(user);
+                    replace(group);
+                    permissions.as_mut().map(replace);
                 }
                 Download { from, to } => {
                     replace(from);
@@ -596,7 +693,111 @@ line_in_file:
                 }
             }
 
-            // TODO Add unit tests for Upload once it's fully fleshed out.
+            mod upload {
+                use super::*;
+
+                #[test]
+                fn works() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  group: d
+  permissions: e
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn user_defaults_to_root() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  group: d
+  permissions: e
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "root".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn group_defaults_to_root() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  permissions: e
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "root".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn permissions_defaults_to_none() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  group: d
+  overwrite: false\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: None,
+                        overwrite: false,
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn overwrite_defaults_to_true() {
+                    let yaml = "\
+upload:
+  from: a
+  to: b
+  user: c
+  group: d
+  permissions: e\n";
+                    let action = Action::Upload {
+                        from: "a".to_string(),
+                        to: "b".to_string(),
+                        user: "c".to_string(),
+                        group: "d".to_string(),
+                        permissions: Some("e".to_string()),
+                        overwrite: true,
+                    };
+                    check(yaml, action);
+                }
+            }
+
             // TODO Add unit tests for Download once it's fully fleshed out.
         }
     }
@@ -622,10 +823,14 @@ line_in_file:
                 Upload {
                     from: "g".to_string(),
                     to: "h".to_string(),
+                    user: "h".to_string(),
+                    group: "i".to_string(),
+                    permissions: Some("j".to_string()),
+                    overwrite: true,
                 },
                 Download {
-                    from: "i".to_string(),
-                    to: "j".to_string(),
+                    from: "k".to_string(),
+                    to: "l".to_string(),
                 },
             ];
 
@@ -642,10 +847,14 @@ line_in_file:
                 Upload {
                     from: "g".to_string(),
                     to: "h".to_string(),
+                    user: "h".to_string(),
+                    group: "i".to_string(),
+                    permissions: Some("j".to_string()),
+                    overwrite: true,
                 },
                 Download {
-                    from: "i".to_string(),
-                    to: "j".to_string(),
+                    from: "k".to_string(),
+                    to: "l".to_string(),
                 },
             ];
 
@@ -818,6 +1027,10 @@ line_in_file:
                             Upload {
                                 from: action_string.clone(),
                                 to: action_string.clone(),
+                                user: action_string.clone(),
+                                group: action_string.clone(),
+                                permissions: Some(action_string.clone()),
+                                overwrite: true,
                             },
                             Download {
                                 from: action_string.clone(),
@@ -853,6 +1066,10 @@ line_in_file:
                         Upload { .. } => Upload {
                             from: expected_string.clone(),
                             to: expected_string.clone(),
+                            user: expected_string.clone(),
+                            group: expected_string.clone(),
+                            permissions: Some(expected_string.clone()),
+                            overwrite: true,
                         },
                         Download { .. } => Download {
                             from: expected_string.clone(),

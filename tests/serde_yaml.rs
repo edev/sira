@@ -142,6 +142,11 @@ mod manifest {
                 None => vec!["bob".to_owned()],
             };
 
+            // Note on permissions: if the string looks like a number, serde_yaml will quote it,
+            // e.g. "640" -> "'640'", when serializing. Deserializing unquoted numbers works just
+            // fine, but I'm not aware of a way to turn this quoting off. The only place we
+            // serialize, other than in tests, is generating Actions to send to sira-client, so
+            // this is never a user-facing issue.
             let include_yaml = match self.include.yaml {
                 Some(yaml) => match yaml.is_empty() {
                     true => yaml.to_owned(),
@@ -164,6 +169,9 @@ include:
   - upload:
       from: ./files/home/bob/.zshrc
       to: .
+      user: dave
+      group: buster
+      permissions: ugo=rwx
 "
                 .to_owned(),
             };
@@ -191,6 +199,10 @@ include:
                             actions: vec![Action::Upload {
                                 from: "./files/home/bob/.zshrc".to_owned(),
                                 to: ".".to_owned(),
+                                user: "dave".to_owned(),
+                                group: "buster".to_owned(),
+                                permissions: Some("ugo=rwx".to_owned()),
+                                overwrite: true,
                             }],
                             vars: IndexMap::new(),
                         },
