@@ -95,7 +95,7 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
         let output = match &action {
             Shell(_) => client.shell(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
-            Upload { from, to, .. } => client.upload(from, to, &yaml, sign(&yaml)?).await?,
+            Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
             Download { from, to } => client.download(from, to).await?,
         };
 
@@ -381,19 +381,13 @@ mod tests {
                 async fn upload(
                     &mut self,
                     from: &str,
-                    to: &str,
                     yaml: &str,
                     signature: Option<Vec<u8>>,
                 ) -> anyhow::Result<Output> {
                     // Sanity check.
                     let action: Action = serde_yaml::from_str(yaml).unwrap();
                     match action {
-                        Action::Upload {
-                            from: af, to: at, ..
-                        } => {
-                            assert_eq!(from, af);
-                            assert_eq!(to, at);
-                        }
+                        Action::Upload { from: af, .. } => assert_eq!(from, af),
                         x => panic!("expected Action::Upload but got:\n{x:#?}"),
                     }
 

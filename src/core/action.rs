@@ -8,6 +8,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(doc)]
 use std::sync::Arc;
 
+/// The relative path to the temporary file that the `sira` and `sira-client` both use when
+/// uploading or downloading files.
+pub const FILE_TRANSFER_PATH: &str = ".sira-transfer";
+
 pub mod line_in_file;
 pub use line_in_file::line_in_file;
 

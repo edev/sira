@@ -2,6 +2,7 @@
 //!
 //! [Action]: crate::core::Action
 
+use crate::core::action::FILE_TRANSFER_PATH;
 use async_trait::async_trait;
 use openssh::{KnownHosts, Session};
 use std::io;
@@ -38,7 +39,6 @@ pub trait ClientInterface {
     async fn upload(
         &mut self,
         from: &str,
-        to: &str,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> anyhow::Result<Output>;
@@ -88,11 +88,10 @@ impl ClientInterface for Client {
     async fn upload(
         &mut self,
         from: &str,
-        to: &str,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> anyhow::Result<Output> {
-        let to = format!("{}:{}", self.host, to);
+        let to = format!("{}:{}", self.host, FILE_TRANSFER_PATH);
         let _ = self.scp(from, &to).await?;
         Ok(self.client_command(yaml, signature).await?)
     }
