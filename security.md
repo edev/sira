@@ -8,7 +8,7 @@ Sira logs into managed nodes the same way you would log into them yourself: it a
 
 # Running actions on managed nodes
 
-For actions that OpenSSH can execute directly, Sira does exactly that. For instance, if you need to upload or download a file, Sira simply uses OpenSSH file transfer. Actions such as running shell commands and modifying file lines, however, require the use of a client application, `sira-client`, on the managed node.
+For some actions, Sira's workflow involves running commands on the control node. For instance, if you need to upload a file, Sira starts by using OpenSSH file transfer to copy the file from the control node to a temporary file on each managed node. At some point, though, actions typically require the use of a client application, `sira-client`, on the managed node.
 
 `sira-client` must be owned by `root:root` with `0700` permissions. As part of bootstrapping a node, you must give the user as whom Sira logs in (we'll call this **the Sira user**) permission to run `sira-client` via `sudo` without requiring a password. This is the only shell command that the control node runs directly on managed nodes; `sira-client` handles the rest. The Sira user requires no other special permissions; for instance, it *does not* need unrestricted `sudo` access.
 
