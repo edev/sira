@@ -224,6 +224,9 @@ pub enum Action {
         /// If `true`, this option causes Sira to invoke `mv -n` instead of `mv`. Sira's behavior
         /// follows from your system's implementation of `mv -n`: most likely, in the event that a
         /// file exists at the destination, Sira will silently decline to move the file.
+        ///
+        /// If this property is `false` and the file already exists, then the user, group, and
+        /// permissions **will not be updated**. The existing file will remain untouched.
         #[serde(skip_serializing_if = "is_true")]
         #[serde(default = "Action::default_overwrite")]
         overwrite: bool,

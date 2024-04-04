@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context};
 use shlex::Shlex;
-use sira::core::action::line_in_file;
+use sira::core::action::{line_in_file, FILE_TRANSFER_PATH};
 use sira::core::Action;
 use sira::crypto;
 use std::env;
@@ -89,20 +89,91 @@ fn main() -> anyhow::Result<()> {
                     .next()
                     .ok_or(anyhow!("sira-client received a blank shell command"))?;
                 let args: Vec<_> = words.collect();
-                let child_exit_status = Command::new(command).args(&args).spawn()?.wait()?;
-                if !child_exit_status.success() {
-                    let exit_code_message = match child_exit_status.code() {
-                        Some(i) => format!("exit code {i}"),
-                        None => "error".to_string(),
-                    };
-                    bail!("command exited with {exit_code_message}: {command_string}");
-                }
+                run_command(Command::new(command).args(&args), Some(command_string))?;
             }
         }
         LineInFile { .. } => line_in_file(&action)?,
-        Upload { .. } | Download { .. } => {
+        Upload {
+            from: _,
+            to,
+            user,
+            group,
+            permissions,
+            overwrite,
+        } => {
+            // It probably isn't exploitable, but let's try to perform some basic sanity checking
+            // before we inject `{user}:{group}` into an argument and pass it to chown as root!
+            //
+            // We don't need to check for spaces, because Command already protects us from
+            // argument-delimiter injection attacks by its use of a builder pattern.
+            if user.contains(':') {
+                bail!("user should not contain a colon (\":\") character: {user}");
+            } else if group.contains(':') {
+                bail!("group should not contain a colon (\":\") character: {group}");
+            }
+
+            // chmod the temporary file to its final state.
+            //
+            // We do this before we chown under the theory that it might be slightly more secure.
+            // If the final permissions are more restrictive than the Sira user's default
+            // permissions, then we don't want to change the user or group, thereby granting
+            // additional potential access, before we restrict permissions for said user and group.
+            if let Some(permissions) = permissions {
+                run_command(
+                    Command::new("chmod")
+                        .arg(permissions)
+                        .arg(FILE_TRANSFER_PATH),
+                    None,
+                )?;
+            }
+
+            // chown the temporary file to its final state.
+            run_command(
+                Command::new("chown")
+                    .arg(format!("{user}:{group}"))
+                    .arg(FILE_TRANSFER_PATH),
+                None,
+            )?;
+
+            // Install the file, i.e. mv the file into place.
+            let mut mv = Command::new("mv");
+            if !overwrite {
+                mv.arg("-n");
+            }
+            mv.arg(FILE_TRANSFER_PATH);
+            mv.arg(to);
+            if let Err(e) = run_command(&mut mv, None) {
+                // Try to delete the temporary file for security, but if that fails, silently
+                // ignore the failure. Either way, return the error from `mv`.
+                //
+                // We need to invoke `rm` instead of of using std::fs so we can resolve the path
+                // the same way as `mv` and the other commands.
+                let _ = Command::new("rm").arg(FILE_TRANSFER_PATH).status();
+                return Err(e);
+            }
+        }
+        Download { .. } => {
             bail!("this action is implemented on sira, not sira-client");
         }
+    }
+    Ok(())
+}
+
+// Run a command locally, and if it fails, return a descriptive Err value.
+//
+// `command_string` should be a precise text-form equivalent of `command`. If `command_string` is
+// `None`, then an approximation will be used in the event of an error.
+fn run_command(command: &mut Command, command_string: Option<String>) -> anyhow::Result<()> {
+    // If this is being run locally, we want stdin/out/err to work normally. If it's being run
+    // via ssh, we want to defer to the ssh client's wishes. Therefore, we use status, not output.
+    let child_exit_status = command.status()?;
+    if !child_exit_status.success() {
+        let exit_code_message = match child_exit_status.code() {
+            Some(i) => format!("exit code {i}"),
+            None => "error".to_string(),
+        };
+        let command_string = command_string.unwrap_or_else(|| format!("{command:?}"));
+        bail!("command exited with {exit_code_message}: {command_string}");
     }
     Ok(())
 }
