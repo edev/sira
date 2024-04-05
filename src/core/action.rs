@@ -199,6 +199,9 @@ pub enum Action {
         /// user's home directory.
         ///
         /// The parent directory must exist; if it does not exist, this [Action] will fail.
+        // TODO Handle special case: when `to == "."`, set it to the same as `from`. Otherwise the
+        // eventual mv command will return an error, since the file name was wiped out during
+        // transfer.
         to: String,
 
         /// The final owner of the file on the managed node. Defaults to `root`.
