@@ -9,13 +9,105 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::Arc;
 
 /// The relative path to the temporary file that the `sira` and `sira-client` both use when
-/// uploading or downloading files.
+/// uploading files.
 pub const FILE_TRANSFER_PATH: &str = ".sira-transfer";
 
 pub mod line_in_file;
 pub use line_in_file::line_in_file;
 
 /// The types of actions that Sira can perform on a client.
+///
+/// # Why isn't there an [Action] to run a local command on the control node?
+///
+/// Four reasons. First, it's easy enough to simply run said local command yourself as the
+/// administrator. If you need to insert it after running certain steps with Sira, you can easily
+/// break your workload into several manifests and run Sira several times in sequence. (See the
+/// example below.)
+///
+/// Second, [Plan]s run on each managed node in parallel, with each node running [Action]s as fast
+/// as it can. To support running local commands on the control node at specific points in a run,
+/// we would need to instruct all affected nodes to wait for the slowest one to catch up, run the
+/// local command, and then instruct them to resume. This would have few or no advantages over the
+/// solutions presented above.
+///
+/// Third, this new [Action] would need to know what managed nodes it affected (if any), which
+/// would be confusing, awkward, and error-prone. For instance, the administrator might need to
+/// remember to update this list any time they changed the hosts in a manifest file. Worse, when
+/// reusing a task file in multiple manifests, it might be impossible to correctly specify the
+/// affected hosts. Alternatively, the new [Action] could require its own, dedicated manifest and
+/// task, avoiding these issues, but this would be awkward, anti-idiomatic, and harder than the
+/// solutions presented above.
+///
+/// Fourth, these changes would add significant complexity to Sira's code base without a compelling
+/// reason. Sira's current execution model is fairly straightforward, which makes it easier to
+/// verify with confidence. From both security and correctness perspectives, this is very valuable.
+///
+/// ## Example
+///
+/// Suppose that you need to run the following actions, in order:
+///
+/// ```text
+/// # On one managed node, generate a file you need to distribute to all the other managed nodes:
+/// root@koala:~# update-file
+///
+/// # On the control node, download the file using scp, rsync, or another tool of your choice:
+/// sira@sira-control:~/sira$ scp <user>@koala:<path-to-file> <local-file-name>
+///
+/// # Distribute the local file to other managed nodes:
+/// scp <local-file-name> <user>@<host-1>:<path-to-remote-file>
+/// scp <local-file-name> <user>@<host-2>:<path-to-remote-file>
+/// scp <local-file-name> <user>@<host-3>:<path-to-remote-file>
+/// # ...
+/// ```
+///
+/// To accomplish this more securely in Sira (e.g. without providing root access over SSH):
+///
+/// ```text
+/// # ~/sira/manifests/update-file.yaml
+/// ---
+/// name: Update file
+/// hosts:
+///   - koala
+/// include:
+///   - tasks/update-file.yaml
+///
+/// # ~/sira/manifests/tasks/update-file.yaml
+/// ---
+/// name: Update file
+/// actions:
+///   - shell:
+///       - update-file
+///
+/// # ~/sira/manifests/upload-file.yaml
+/// ---
+/// name: Upload file
+/// hosts:
+///   - host-1
+///   - host-2
+///   - host-3
+///   ...
+/// include:
+///   - tasks/upload-file.yaml
+///
+/// # ~/sira/manifests/tasks/upload-file.yaml
+/// ---
+/// name: Upload file
+/// actions:
+///   - upload:
+///       from: <local-file-name>
+///       to: <path-to-remote-file>
+///       # If desired, you can also set user, group, and permissions, and choose whether to
+///       # overwrite existing files.
+///
+/// # ~/sira/run
+/// #!/bin/bash
+/// set -e
+/// sira manifests/update-file.yaml
+/// scp <user>@koala:<path-to-file> <local-file-name>
+/// sira manifests/upload-file.yaml
+/// ```
+///
+/// With these files in place, you can simply run `./run` from `~/sira` on your control node.
 // In order to allow Action to (de)serialize using singleton map notation rather than externally
 // tagged notation, we adapt the method used here: https://github.com/dtolnay/serde-yaml/issues/363
 //
@@ -23,7 +115,6 @@ pub use line_in_file::line_in_file;
 // Serialize and Deserialize using internal wrapper types that allow us to invoke the methods in
 // serde_yaml::with::singleton_map.
 //
-// TODO Flesh out Actions. The current states are intentionally basic sketches.
 // TODO Sort actions alphabetically.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -234,12 +325,6 @@ pub enum Action {
         #[serde(default = "Action::default_overwrite")]
         overwrite: bool,
     },
-
-    // I need to add more fields, like user, group, and permissions.
-    Download {
-        from: String,
-        to: String,
-    },
 }
 
 // Adapted from https://github.com/dtolnay/serde-yaml/issues/363. See comment on Action for more.
@@ -325,7 +410,7 @@ impl Action {
                         .iter()
                         .map(|command| Shell(vec![command.to_owned()])),
                 ),
-                action @ LineInFile { .. } | action @ Upload { .. } | action @ Download { .. } => {
+                action @ LineInFile { .. } | action @ Upload { .. } => {
                     output.push(action.to_owned())
                 }
             }
@@ -554,10 +639,6 @@ impl HostAction {
                     replace(user);
                     replace(group);
                     permissions.as_mut().map(replace);
-                }
-                Download { from, to } => {
-                    replace(from);
-                    replace(to);
                 }
             }
         }
@@ -800,8 +881,6 @@ upload:
                     check(yaml, action);
                 }
             }
-
-            // TODO Add unit tests for Download once it's fully fleshed out.
         }
     }
 
@@ -831,10 +910,6 @@ upload:
                     permissions: Some("j".to_string()),
                     overwrite: true,
                 },
-                Download {
-                    from: "k".to_string(),
-                    to: "l".to_string(),
-                },
             ];
 
             let expected = vec![
@@ -854,10 +929,6 @@ upload:
                     group: "i".to_string(),
                     permissions: Some("j".to_string()),
                     overwrite: true,
-                },
-                Download {
-                    from: "k".to_string(),
-                    to: "l".to_string(),
                 },
             ];
 
@@ -1035,10 +1106,6 @@ upload:
                                 permissions: Some(action_string.clone()),
                                 overwrite: true,
                             },
-                            Download {
-                                from: action_string.clone(),
-                                to: action_string.clone(),
-                            },
                         ],
                         vars: IndexMap::new(),
                     }],
@@ -1073,10 +1140,6 @@ upload:
                             group: expected_string.clone(),
                             permissions: Some(expected_string.clone()),
                             overwrite: true,
-                        },
-                        Download { .. } => Download {
-                            from: expected_string.clone(),
-                            to: expected_string.clone(),
                         },
                     };
 

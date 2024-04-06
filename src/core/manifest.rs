@@ -722,10 +722,6 @@ mod tests {
                     permissions: Some("777".into()),
                     overwrite: true,
                 },
-                Action::Download {
-                    from: "from".into(),
-                    to: "to".into(),
-                },
             ];
 
             // Task 2 has no actions.
