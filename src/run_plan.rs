@@ -96,7 +96,6 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
             Shell(_) => client.shell(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
             Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
-            Download { from, to } => client.download(from, to).await?,
         };
 
         reporter.report(&host, yaml, &output).await?;
@@ -397,15 +396,6 @@ mod tests {
                     // very helpful on this issue.
                     self.record("upload", yaml, signature, io::Error::other("expected"))
                         .map_err(Into::into)
-                }
-
-                async fn download(&mut self, from: &str, to: &str) -> io::Result<Output> {
-                    let action = Action::Download {
-                        from: from.to_owned(),
-                        to: to.to_owned(),
-                    };
-                    let yaml = serde_yaml::to_string(&action).unwrap();
-                    self.record("download", yaml, None, io::Error::other("expected"))
                 }
             }
 
@@ -730,36 +720,6 @@ mod tests {
             }
         }
 
-        mod download {
-            use super::*;
-
-            #[tokio::test]
-            async fn calls_client_download() {
-                Fixture::test_calls_client(
-                    "download",
-                    Action::Download {
-                        from: "a".to_string(),
-                        to: "b".to_string(),
-                    },
-                    false,
-                )
-                .await
-            }
-
-            #[tokio::test]
-            async fn returns_error_on_failure() {
-                Fixture::test_client_returns_error(
-                    "download",
-                    Action::Download {
-                        from: "a".to_string(),
-                        to: "b".to_string(),
-                    },
-                    false,
-                )
-                .await
-            }
-        }
-
         #[tokio::test]
         async fn reports_action() {
             let fixture = Fixture::new();
@@ -779,20 +739,14 @@ mod tests {
         #[tokio::test]
         async fn returns_if_action_fails() {
             let mut fixture = Fixture::new();
-            fixture.plan.manifests[0].include[0].actions = vec![
-                Action::Upload {
-                    from: "a".to_string(),
-                    to: "b".to_string(),
-                    user: "c".to_string(),
-                    group: "d".to_string(),
-                    permissions: Some("e".to_string()),
-                    overwrite: true,
-                },
-                Action::Download {
-                    from: "c".to_string(),
-                    to: "d".to_string(),
-                },
-            ];
+            fixture.plan.manifests[0].include[0].actions = vec![Action::Upload {
+                from: "a".to_string(),
+                to: "b".to_string(),
+                user: "c".to_string(),
+                group: "d".to_string(),
+                permissions: Some("e".to_string()),
+                overwrite: true,
+            }];
             fixture.client_factory().exit_code(&fixture.host, -1);
 
             fixture.run_host_plan().await.unwrap();

@@ -42,9 +42,6 @@ pub trait ClientInterface {
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> anyhow::Result<Output>;
-
-    /// Download a file from the client to the Sira control node over SSH.
-    async fn download(&mut self, from: &str, to: &str) -> io::Result<Output>;
 }
 
 /// Production implementation of [ManageClient].
@@ -85,8 +82,8 @@ impl ClientInterface for Client {
         self.client_command(yaml, signature).await
     }
 
-    // TODO Strongly considering adding automatic recursive upload/download. Remember to modify
-    // sira-client accordingly!
+    // TODO Strongly considering adding automatic recursive upload. Remember to modify sira-client
+    // accordingly!
     async fn upload(
         &mut self,
         from: &str,
@@ -133,11 +130,6 @@ impl ClientInterface for Client {
             return Ok(scp_output);
         }
         Ok(self.client_command(yaml, signature).await?)
-    }
-
-    async fn download(&mut self, from: &str, to: &str) -> io::Result<Output> {
-        let from = format!("{}:{}", self.host, from);
-        self.scp(&from, to).await
     }
 }
 

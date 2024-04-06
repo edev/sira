@@ -152,9 +152,6 @@ fn main() -> anyhow::Result<()> {
                 return Err(e);
             }
         }
-        Download { .. } => {
-            bail!("this action is implemented on sira, not sira-client");
-        }
     }
     Ok(())
 }
