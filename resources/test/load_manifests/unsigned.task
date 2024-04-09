@@ -1,5 +1,5 @@
 name: set host name
 user: root
 actions:
-  - shell:
+  - command:
     - hostnamectl hostname t470

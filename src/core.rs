@@ -25,7 +25,7 @@ pub mod fixtures {
     /// Returns a [Plan], which contains one [Manifest], which contains one [Task], which contains
     /// one [Action]. Also returns clones of these contained values for convenience.
     pub fn plan() -> (Plan, Manifest, Task, Action) {
-        let action = Action::Shell(vec!["echo hi".into(), "pwd".into()]);
+        let action = Action::Command(vec!["echo hi".into(), "pwd".into()]);
 
         let task = Task {
             source: None,

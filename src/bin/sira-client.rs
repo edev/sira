@@ -80,20 +80,19 @@ fn main() -> anyhow::Result<()> {
 
     let action: Action = serde_yaml::from_str(&yaml)?;
 
-    use Action::*;
     match action {
-        Shell(commands) => {
+        Action::Command(commands) => {
             for command_string in commands {
                 let mut words = Shlex::new(&command_string);
                 let command = words
                     .next()
-                    .ok_or(anyhow!("sira-client received a blank shell command"))?;
+                    .ok_or(anyhow!("sira-client received a blank command"))?;
                 let args: Vec<_> = words.collect();
                 run_command(Command::new(command).args(&args), Some(command_string))?;
             }
         }
-        LineInFile { .. } => line_in_file(&action)?,
-        Upload {
+        Action::LineInFile { .. } => line_in_file(&action)?,
+        Action::Upload {
             from: _,
             to,
             user,
