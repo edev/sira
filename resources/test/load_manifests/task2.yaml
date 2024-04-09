@@ -1,7 +1,7 @@
 name: snap install
 user: root
 actions:
-  - shell:
+  - command:
     - snap install $snaps
 vars:
   snaps: >-

@@ -2,7 +2,7 @@
 name: apt install
 user: root
 actions:
-  - shell:
+  - command:
     - apt upgrade
     - apt install -y $packages
 vars:

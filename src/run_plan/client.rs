@@ -21,8 +21,8 @@ pub trait ManageClient<CI: ClientInterface> {
 /// [Action]: crate::core::Action
 #[async_trait]
 pub trait ClientInterface {
-    /// Send one or more shell commands to be run on the client.
-    async fn shell(
+    /// Send one or more commands to be run on the client.
+    async fn command(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
@@ -66,7 +66,7 @@ pub struct Client {
 
 #[async_trait]
 impl ClientInterface for Client {
-    async fn shell(
+    async fn command(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
