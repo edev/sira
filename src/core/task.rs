@@ -32,8 +32,8 @@ pub struct Task {
     /// this user to perform actions.
     ///
     /// If this field is empty, then [Self::actions] will run as the login user.
-    // TODO Evaluate how much sense this makes. It seems to me that it really belongs as a field
-    // on Action::Shell.
+    // TODO Evaluate how much sense this makes. Almost certainly remove it, in light of recent
+    // documentation changes to Action::Command.
     #[serde(skip_serializing_if = "str::is_empty", default)]
     pub user: String,
 

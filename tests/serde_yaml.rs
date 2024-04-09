@@ -157,7 +157,7 @@ include:
 - name: Console commands
   user: bob
   actions:
-  - shell:
+  - command:
     - pwd
     - echo $message > ./message
     - uname -r
@@ -185,7 +185,7 @@ include:
                             source: None,
                             name: "Console commands".to_owned(),
                             user: "bob".to_owned(),
-                            actions: vec![Action::Shell(vec![
+                            actions: vec![Action::Command(vec![
                                 "pwd".to_owned(),
                                 "echo $message > ./message".to_owned(),
                                 "uname -r".to_owned(),
@@ -799,11 +799,11 @@ mod task {
                     true => yaml.to_owned(),
                     false => yaml.to_owned() + "\n",
                 },
-                None => "actions:\n- shell:\n  - pwd\n  - echo hi\n  - uname -r\n".to_owned(),
+                None => "actions:\n- command:\n  - pwd\n  - echo hi\n  - uname -r\n".to_owned(),
             };
             let actions = match self.actions.value {
                 Some(v) => v,
-                None => vec![Action::Shell(vec![
+                None => vec![Action::Command(vec![
                     "pwd".to_owned(),
                     "echo hi".to_owned(),
                     "uname -r".to_owned(),

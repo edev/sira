@@ -416,8 +416,8 @@ mod tests {
                             name: "apt install".to_owned(),
                             user: "root".to_owned(),
                             actions: vec![
-                                Action::Shell(vec!["apt upgrade".to_owned()]),
-                                Action::Shell(vec!["apt install -y $packages".to_owned()]),
+                                Action::Command(vec!["apt upgrade".to_owned()]),
+                                Action::Command(vec!["apt install -y $packages".to_owned()]),
                             ],
                             vars: [(
                                 "packages".to_owned(),
@@ -432,7 +432,7 @@ mod tests {
                             ),
                             name: "snap install".to_owned(),
                             user: "root".to_owned(),
-                            actions: vec![Action::Shell(vec!["snap install $snaps".to_owned()])],
+                            actions: vec![Action::Command(vec!["snap install $snaps".to_owned()])],
                             vars: [("snaps".to_owned(), "discord".to_owned())].into(),
                         },
                     ],
@@ -456,7 +456,9 @@ mod tests {
                         ),
                         name: "set host name".to_owned(),
                         user: "root".to_owned(),
-                        actions: vec![Action::Shell(vec!["hostnamectl hostname t470".to_owned()])],
+                        actions: vec![Action::Command(
+                            vec!["hostnamectl hostname t470".to_owned()],
+                        )],
                         vars: IndexMap::new(),
                     }],
                     vars: IndexMap::new(),
@@ -475,7 +477,9 @@ mod tests {
                         ),
                         name: "set host name".to_owned(),
                         user: "root".to_owned(),
-                        actions: vec![Action::Shell(vec!["hostnamectl hostname zen3".to_owned()])],
+                        actions: vec![Action::Command(
+                            vec!["hostnamectl hostname zen3".to_owned()],
+                        )],
                         vars: IndexMap::new(),
                     }],
                     vars: IndexMap::new(),
@@ -706,7 +710,7 @@ mod tests {
         fn returns_all_actions_for_all_manifests_and_tasks() {
             // Actions for Task 1 (below).
             let task_1_actions = vec![
-                Action::Shell(vec!["echo hi".into(), "pwd".into()]),
+                Action::Command(vec!["echo hi".into(), "pwd".into()]),
                 Action::LineInFile {
                     path: "/etc/hosts".into(),
                     line: "192.168.1.93 zen3".into(),
@@ -727,7 +731,7 @@ mod tests {
             // Task 2 has no actions.
 
             // Actions for Task 3 (below).
-            let task_3_actions = vec![Action::Shell(vec!["echo bye".into(), "logout".into()])];
+            let task_3_actions = vec![Action::Command(vec!["echo bye".into(), "logout".into()])];
 
             let tasks = vec![
                 // A normal, routine task.

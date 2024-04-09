@@ -18,7 +18,7 @@ pub const ACTION_SIGNING_KEY: &str = "action";
 /// every available host.
 ///
 /// Similarly, if a host encounters an error, either due to a connection issue or an [Action] that
-/// fails (e.g. an [Action::Shell] that returns a non-zero exit code), that host will execute no
+/// fails (e.g. an [Action::Command] that returns a non-zero exit code), that host will execute no
 /// further [Action]s, but other hosts will run to completion.
 ///
 /// # Returns
@@ -28,7 +28,7 @@ pub const ACTION_SIGNING_KEY: &str = "action";
 /// portion of the [Plan].
 ///
 /// [Action]: crate::core::Action
-/// [Action::Shell]: crate::core::Action::Shell
+/// [Action::Command]: crate::core::Action::Command
 pub async fn run_plan(plan: Plan) -> Result<(), Vec<(String, anyhow::Error)>> {
     _run_plan(plan, ConnectionManager, Reporter).await
 }
@@ -93,7 +93,7 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
 
         use crate::core::Action::*;
         let output = match &action {
-            Shell(_) => client.shell(&yaml, sign(&yaml)?).await?,
+            Command(_) => client.command(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
             Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
         };
@@ -356,12 +356,12 @@ mod tests {
 
             #[async_trait]
             impl ClientInterface for TestClient {
-                async fn shell(
+                async fn command(
                     &mut self,
                     yaml: &str,
                     signature: Option<Vec<u8>>,
                 ) -> Result<Output, openssh::Error> {
-                    self.record("shell", yaml, signature, openssh::Error::Disconnected)
+                    self.record("command", yaml, signature, openssh::Error::Disconnected)
                 }
 
                 async fn line_in_file(
@@ -582,10 +582,10 @@ mod tests {
             let mut fixture = Fixture::new();
 
             // For simplicity, we provide our own, unsigned Actions instead of using the two
-            // Action::Shell values that ship with Fixture.
+            // Action::Command values that ship with Fixture.
             fixture.plan.manifests[0].include[0].actions = vec![
-                Action::Shell(vec!["one".to_string()]),
-                Action::Shell(vec!["two".to_string()]),
+                Action::Command(vec!["one".to_string()]),
+                Action::Command(vec!["two".to_string()]),
             ];
 
             fixture.run_host_plan().await.unwrap();
@@ -602,7 +602,7 @@ mod tests {
             let signature = maybe_sign(&yaml, true);
             assert_eq!(
                 &CommandRecord {
-                    method_name: "shell",
+                    method_name: "command",
                     yaml,
                     signature,
                 },
@@ -614,7 +614,7 @@ mod tests {
             let signature = maybe_sign(&yaml, true);
             assert_eq!(
                 &CommandRecord {
-                    method_name: "shell",
+                    method_name: "command",
                     yaml,
                     signature,
                 },
@@ -622,14 +622,14 @@ mod tests {
             );
         }
 
-        mod shell {
+        mod command {
             use super::*;
 
             #[tokio::test]
-            async fn calls_client_shell() {
+            async fn calls_client_command() {
                 Fixture::test_calls_client(
-                    "shell",
-                    Action::Shell(vec!["send_it".to_string()]),
+                    "command",
+                    Action::Command(vec!["send_it".to_string()]),
                     true,
                 )
                 .await
@@ -638,8 +638,8 @@ mod tests {
             #[tokio::test]
             async fn returns_error_on_failure() {
                 Fixture::test_client_returns_error(
-                    "shell",
-                    Action::Shell(vec!["send_it".to_string()]),
+                    "command",
+                    Action::Command(vec!["send_it".to_string()]),
                     true,
                 )
                 .await

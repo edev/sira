@@ -75,7 +75,7 @@ pub use line_in_file::line_in_file;
 /// ---
 /// name: Update file
 /// actions:
-///   - shell:
+///   - command:
 ///       - update-file
 ///
 /// # ~/sira/manifests/upload-file.yaml
@@ -114,14 +114,10 @@ pub use line_in_file::line_in_file;
 // This method derives remote definitions for (de)serializing and then manually implements
 // Serialize and Deserialize using internal wrapper types that allow us to invoke the methods in
 // serde_yaml::with::singleton_map.
-//
-// TODO Sort actions alphabetically.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(remote = "Self")]
 pub enum Action {
-    Shell(Vec<String>),
-
     /// Replaces a line in a file or inserts a new line.
     ///
     /// # Behavior
@@ -259,6 +255,56 @@ pub enum Action {
         indent: bool,
     },
 
+    /// Runs one or more commands on managed nodes (as root).
+    ///
+    /// # Using shell features in commands
+    ///
+    /// When `sira-client` processes an [Action::Command], it creates the requested process
+    /// directly rather than through a shell. This is done primarily for compatibility reasons, so
+    /// that you are free to use whatever shell you wish without needing to ask whether it is
+    /// compatible with Sira. Therefore, if you wish to use shell features in an [Action::Command],
+    /// such as redirecting I/O or setting up pipelines, you will need to invoke your desired
+    /// shell. For example:
+    ///
+    /// ```text
+    /// ---
+    /// name: Test pipes
+    /// actions:
+    ///   - command:
+    ///       - bash -c "echo hi | cat"
+    /// ```
+    ///
+    /// # Running commands as other users
+    ///
+    /// If you need to run a single command as another user, try `sudo -u <user> <command>`.
+    ///
+    /// If you need to run lots of commands as another user, consider doing the following:
+    /// 1. Write a shell script that runs the commands. Commit it to source control as part of
+    ///    your Sira configuration, e.g. in a `/files` directory.
+    /// 2. (Optional) For extra security, sign the shell script on the development node and commit
+    ///    it to source control:
+    ///     ```text
+    ///     ssh-keygen -Y sign -f <action-private-key> -n sira <file-name...>
+    ///     ```
+    /// 3. Use [Action::Upload] to transfer the file (and optionally its signature).
+    /// 4. (Optional) Use [Action::Command] to verify the file's signature:
+    ///     ```text
+    ///     ---
+    ///     name: Verify signature
+    ///     actions:
+    ///       - command:
+    ///           # YAML plain scalars like the one below fold line breaks into spaces,
+    ///           # so bash its arguments on one line.
+    ///           - bash -c "ssh-keygen -Y verify
+    ///                  -f /etc/sira/allowed_signers/action
+    ///                  -I sira
+    ///                  -n sira
+    ///                  -s <signature-file>
+    ///                  < <file-to-verify>"
+    ///     ```
+    /// 5. Run the shell script using: `sudo -u <user> <script>`
+    Command(Vec<String>),
+
     /// Transfers a file from the control node to managed nodes.
     ///
     /// The transfer takes place in two stages:
@@ -273,9 +319,11 @@ pub enum Action {
     /// home directory with default permissions. If you need to protect files from being prying
     /// eyes during this stage, you have several options. First, you may wish to restrict the Sira
     /// user's home directory, e.g. to `700` or `770` permissions. Second, you may choose to store
-    /// the file in encrypted form on the control node and decrypt it on the managed hode after
-    /// transferring it, perhaps using [Action::Shell] to run the decryption while storing the
+    /// the file in encrypted form on the control node and decrypt it on the managed node after
+    /// transferring it, perhaps using [Action::Command] to run the decryption while storing the
     /// decryption key securely on the control node.
+    // TODO Either explain how to securely decrypt a file on a managed node or change the advice
+    // above to something more approachable.
     Upload {
         /// The path to the source file, i.e. the file on the control node.
         ///
@@ -364,15 +412,15 @@ impl<'de> Deserialize<'de> for Action {
 impl Action {
     /// Splits a list of [Action]s into as many individual [Action]s as possible.
     ///
-    /// For example, an [Action::Shell] can contain many shell commands. To provide the most
+    /// For example, an [Action::Command] can contain many commands. To provide the most
     /// granular feedback to the end user, it's best to split these commands into their own
-    /// [Action::Shell] values so that they can be processed individually.
+    /// [Action::Command] values so that they can be processed individually.
     ///
     /// ```
     /// # use sira::core::Action;
     ///
     /// let mut actions = vec![
-    ///     Action::Shell(vec!["echo hi".to_owned(), "echo bye".to_owned()]),
+    ///     Action::Command(vec!["echo hi".to_owned(), "echo bye".to_owned()]),
     ///     Action::Upload {
     ///         from: ".bashrc".to_owned(),
     ///         to: ".".to_owned(),
@@ -386,8 +434,8 @@ impl Action {
     /// Action::split(&mut actions);
     ///
     /// let mut expected = vec![
-    ///     Action::Shell(vec!["echo hi".to_owned()]),
-    ///     Action::Shell(vec!["echo bye".to_owned()]),
+    ///     Action::Command(vec!["echo hi".to_owned()]),
+    ///     Action::Command(vec!["echo bye".to_owned()]),
     ///     Action::Upload {
     ///         from: ".bashrc".to_owned(),
     ///         to: ".".to_owned(),
@@ -405,10 +453,10 @@ impl Action {
         let mut output = vec![];
         for source in list.iter() {
             match source {
-                Shell(sublist) => output.extend(
+                Command(sublist) => output.extend(
                     sublist
                         .iter()
-                        .map(|command| Shell(vec![command.to_owned()])),
+                        .map(|command| Command(vec![command.to_owned()])),
                 ),
                 action @ LineInFile { .. } | action @ Upload { .. } => {
                     output.push(action.to_owned())
@@ -611,7 +659,7 @@ impl HostAction {
             // Run the replacement across all fields of the Action.
             use Action::*;
             match &mut action {
-                Shell(commands) => {
+                Command(commands) => {
                     commands.iter_mut().for_each(replace);
                 }
                 LineInFile {
@@ -668,16 +716,17 @@ mod tests {
                 assert_eq!(action, serde_yaml::from_str(yaml).unwrap());
             }
 
-            mod shell {
+            mod command {
                 use super::*;
 
                 #[test]
                 fn works() {
                     let yaml = "\
-                        shell:\n\
+                        command:\n\
                         - echo hi\n\
                         - echo bye\n";
-                    let action = Action::Shell(vec!["echo hi".to_string(), "echo bye".to_string()]);
+                    let action =
+                        Action::Command(vec!["echo hi".to_string(), "echo bye".to_string()]);
                     check(yaml, action);
                 }
 
@@ -686,16 +735,16 @@ mod tests {
                 fn requires_a_list() {
                     // It would be awesome to be able to write:
                     //
-                    //     shell: echo hi
+                    //     command: echo hi
                     //
                     // instead of:
                     //
-                    //     shell:
+                    //     command:
                     //     - echo hi
                     //
                     // However, at this time, this is not implemented. This test documents and
                     // verifies the current state of implementation.
-                    let yaml = "shell: echo hi";
+                    let yaml = "command: echo hi";
                     let _: Action = serde_yaml::from_str(yaml).unwrap();
                 }
             }
@@ -894,7 +943,7 @@ upload:
             // Construct one of each enum variant, and for any variant that might be split,
             // construct one that we expect to be split.
             let mut list = vec![
-                Shell(vec!["a".to_string(), "b".to_string()]),
+                Command(vec!["a".to_string(), "b".to_string()]),
                 LineInFile {
                     path: "a".to_string(),
                     line: "b".to_string(),
@@ -913,8 +962,8 @@ upload:
             ];
 
             let expected = vec![
-                Shell(vec!["a".to_string()]),
-                Shell(vec!["b".to_string()]),
+                Command(vec!["a".to_string()]),
+                Command(vec!["b".to_string()]),
                 LineInFile {
                     path: "a".to_string(),
                     line: "b".to_string(),
@@ -980,7 +1029,7 @@ upload:
             #[should_panic(expected = "task does not include this action")]
             fn requires_task_to_include_action() {
                 let (_, manifest, task, _) = plan();
-                let action = Action::Shell(vec![]);
+                let action = Action::Command(vec![]);
                 HostAction::new(&manifest.hosts[0], &manifest, &task, &action);
             }
         }
@@ -1053,7 +1102,7 @@ upload:
                         source: Some(PathBuf::from(base.clone())),
                         name: base.clone(),
                         user: base.clone(),
-                        actions: vec![Action::Shell(vec![action_string.into()])],
+                        actions: vec![Action::Command(vec![action_string.into()])],
                         vars: task_vars,
                     }],
                     vars: manifest_vars,
@@ -1070,7 +1119,7 @@ upload:
                 // Compile a new Action and extract a string to test.
                 let action = host_action.compile();
                 match action {
-                    Action::Shell(mut commands) => commands.pop().unwrap(),
+                    Action::Command(mut commands) => commands.pop().unwrap(),
                     a => panic!("bug in test fixture. Unexpected action: {a:?}"),
                 }
             }
@@ -1090,7 +1139,7 @@ upload:
                         name: base.clone(),
                         user: base.clone(),
                         actions: vec![
-                            Shell(vec![action_string.clone()]),
+                            Command(vec![action_string.clone()]),
                             LineInFile {
                                 path: action_string.clone(),
                                 line: action_string.clone(),
@@ -1118,14 +1167,14 @@ upload:
                     manifest,
                     task: task.clone(),
                     // Placeholder Action; we'll populate this below.
-                    action: Shell(vec![]),
+                    action: Command(vec![]),
                 };
 
                 // Call HostAction::compile for each Action variant and test each field.
                 let expected_string = "bar".to_owned();
                 for action in task.actions {
                     let expected = match action {
-                        Shell(_) => Shell(vec![expected_string.clone()]),
+                        Command(_) => Command(vec![expected_string.clone()]),
                         LineInFile { .. } => LineInFile {
                             path: expected_string.clone(),
                             line: expected_string.clone(),
