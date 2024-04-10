@@ -22,6 +22,21 @@ pub use line_in_file::line_in_file;
 // This method derives remote definitions for (de)serializing and then manually implements
 // Serialize and Deserialize using internal wrapper types that allow us to invoke the methods in
 // serde_yaml::with::singleton_map.
+
+// TODO Ensure that extraneous YAML fields raise errors when deserializing.
+//
+// I am unsure of the scope of this issue, e.g. whether it affects manifests and tasks.
+//
+// Example:
+//
+// # Task
+// ---
+// name: blah
+// actions:
+//   - upload:
+//       from: file
+//       to: file
+//       hackeysack: yes
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(remote = "Self")]
@@ -356,18 +371,30 @@ pub enum Action {
         ///
         /// This path may be relative or absolute. If the path is relative, it is relative to the
         /// directory from which you invoke Sira, **not** the task file that contains the action.
+        ///
+        /// This path is not interpreted by a shell, so writing `~` for your home directory will
+        /// not work.
+        ///
+        /// Transferring directories (i.e. recursive upload) is not supported.
         from: String,
 
         /// The final path of the file on the managed node.
         ///
         /// This path may be relative or absolute. If the path is relative, it is relative to the
-        /// directory in which `ssh` sessions for the Sira user start; this is usually the Sira
+        /// directory in which SSH sessions for the Sira user start; this is usually the Sira
         /// user's home directory.
         ///
-        /// The parent directory must exist; if it does not exist, this [Action] will fail.
-        // TODO Handle special case: when `to == "."`, set it to the same as `from`. Otherwise the
-        // eventual mv command will return an error, since the file name was wiped out during
-        // transfer.
+        /// This path is not interpreted by a shell, so writing `~` for your home directory will
+        /// not work. You may, however, use `.` to represent the starting directory for SSH
+        /// sessions for the Sira user on the managed node.
+        ///
+        /// This path may be either the final path to the file or the path to the directory that
+        /// will contain the file.
+        ///
+        /// The parent directory must exist; if it does not exist, this [Action] will fail. This is
+        /// an intentional limitation of this [Action] meant to ensure that the system
+        /// administrator has an opportunity to set ownership and permissions on the parent
+        /// directory and further ancestors.
         to: String,
 
         /// The final owner of the file on the managed node. Defaults to `root`.
