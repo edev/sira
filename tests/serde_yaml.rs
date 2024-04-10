@@ -100,22 +100,6 @@ mod manifest {
         ///
         /// To override a field, use the methods provided on Overrides.
         fn source_manifest_pair(self) -> (String, Manifest) {
-            // Pull an owned String from the user-friendly `&'static str` that Overrides stores.
-            // Add a newline if the value is non-empty.
-            let source_yaml = match self.source.yaml {
-                Some(yaml) => match yaml.is_empty() {
-                    true => yaml.to_owned(),
-                    false => yaml.to_owned() + "\n",
-                },
-                None => "".to_owned(),
-            };
-
-            // Extract an owned String from Overrides, if applicable.
-            let source = match self.source.value {
-                Some(v) => v.map(|s| PathBuf::from_str(s).unwrap()),
-                None => None,
-            };
-
             // The rest of the values follow the pattern above.
 
             let name_yaml = match self.name.yaml {
@@ -222,9 +206,9 @@ include:
                 }
             };
 
-            let yaml = format!("{source_yaml}{name_yaml}{hosts_yaml}{include_yaml}{vars_yaml}");
+            let yaml = format!("{name_yaml}{hosts_yaml}{include_yaml}{vars_yaml}");
             let manifest = Manifest {
-                source,
+                source: None,
                 name,
                 hosts,
                 include,
@@ -571,19 +555,6 @@ include:
                 value: Some("sketchy-source.yaml"),
             }));
         }
-
-        /// Verifies that any source field is ignored during deserialization.
-        ///
-        /// I would rather that deserialization fail if a skipped field is present, but at a glance,
-        /// it doesn't seem like serde provides an easy way to do that. Oh well; it's not critical.
-        /// This test documents the behavior and notifies us if it changes.
-        #[test]
-        fn deserialization_ignores_if_present() {
-            assert_de(Overrides::new().source(Override {
-                yaml: "source: sketchy-file.yaml",
-                value: None,
-            }));
-        }
     }
 
     mod name {
@@ -842,21 +813,6 @@ mod task {
                     value: Some("sketchy-source.yaml"),
                 })
                 .assert_ser();
-        }
-
-        /// Verifies that any source field is ignored during deserialization.
-        ///
-        /// I would rather that deserialization fail if a skipped field is present, but at a glance,
-        /// it doesn't seem like serde provides an easy way to do that. Oh well; it's not critical.
-        /// This test documents the behavior and notifies us if it changes.
-        #[test]
-        fn deserialization_ignores_if_present() {
-            Overrides::new()
-                .source(Override {
-                    yaml: "source: sketchy-file.yaml",
-                    value: None,
-                })
-                .assert_de();
         }
     }
 

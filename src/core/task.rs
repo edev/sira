@@ -12,6 +12,7 @@ use std::path::PathBuf;
 /// This type is typically parsed from a manifest file, but it can be constructed programmatically
 /// as well.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Task {
     /// The file from which this value was parsed (if any).
     ///

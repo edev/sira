@@ -141,6 +141,7 @@ fn load_tasks(source: impl AsRef<Path>, source_file: &[u8]) -> anyhow::Result<Ve
 /// This type is typically parsed from a manifest file, but it can be constructed programmatically
 /// as well.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     /// Where this manifest came from.
     ///
@@ -347,6 +348,7 @@ impl Iterator for TaskIntoIter {
 /// Identical to [Manifest] except that [ManifestFile::include] is a list of file names rather than
 /// a list of [Task]s.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManifestFile {
     /// Same as [Manifest::source].
     #[serde(skip)]
