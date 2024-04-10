@@ -30,7 +30,6 @@ pub mod fixtures {
         let task = Task {
             source: None,
             name: "API test".into(),
-            user: "archie".into(),
             actions: vec![action.clone()],
             vars: IndexMap::new(),
         };

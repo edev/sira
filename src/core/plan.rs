@@ -248,7 +248,6 @@ mod tests {
                                             .join("resources/test/load_manifests/task1.yaml"),
                                     ),
                                     name: "apt install".to_owned(),
-                                    user: "root".to_owned(),
                                     actions: vec![
                                         Action::Command(vec!["apt upgrade".to_owned()]),
                                         Action::Command(
@@ -267,7 +266,6 @@ mod tests {
                                             .join("resources/test/load_manifests/task2.yaml"),
                                     ),
                                     name: "snap install".to_owned(),
-                                    user: "root".to_owned(),
                                     actions: vec![Action::Command(vec![
                                         "snap install $snaps".to_owned()
                                     ])],
@@ -293,7 +291,6 @@ mod tests {
                                         .join("resources/test/load_manifests/t470.yaml"),
                                 ),
                                 name: "set host name".to_owned(),
-                                user: "root".to_owned(),
                                 actions: vec![Action::Command(vec![
                                     "hostnamectl hostname t470".to_owned()
                                 ])],
@@ -314,7 +311,6 @@ mod tests {
                                         .join("resources/test/load_manifests/zen3.yaml"),
                                 ),
                                 name: "set host name".to_owned(),
-                                user: "root".to_owned(),
                                 actions: vec![Action::Command(vec![
                                     "hostnamectl hostname zen3".to_owned()
                                 ])],
@@ -335,7 +331,6 @@ mod tests {
                                         .join("resources/test/load_manifests/t470.yaml"),
                                 ),
                                 name: "set host name".to_owned(),
-                                user: "root".to_owned(),
                                 actions: vec![Action::Command(vec![
                                     "hostnamectl hostname t470".to_owned()
                                 ])],

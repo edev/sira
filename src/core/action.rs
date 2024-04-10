@@ -1072,7 +1072,6 @@ upload:
                 let task = Task {
                     source: None,
                     name: "task-not-included".into(),
-                    user: "zane".into(),
                     actions: vec![],
                     vars: IndexMap::new(),
                 };
@@ -1155,7 +1154,6 @@ upload:
                     include: vec![Task {
                         source: Some(PathBuf::from(base.clone())),
                         name: base.clone(),
-                        user: base.clone(),
                         actions: vec![Action::Command(vec![action_string.into()])],
                         vars: task_vars,
                     }],
@@ -1191,7 +1189,6 @@ upload:
                     include: vec![Task {
                         source: Some(PathBuf::from(base.clone())),
                         name: base.clone(),
-                        user: base.clone(),
                         actions: vec![
                             Command(vec![action_string.clone()]),
                             LineInFile {

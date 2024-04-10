@@ -414,7 +414,6 @@ mod tests {
                                     .join("resources/test/load_manifests/task1.yaml"),
                             ),
                             name: "apt install".to_owned(),
-                            user: "root".to_owned(),
                             actions: vec![
                                 Action::Command(vec!["apt upgrade".to_owned()]),
                                 Action::Command(vec!["apt install -y $packages".to_owned()]),
@@ -431,7 +430,6 @@ mod tests {
                                     .join("resources/test/load_manifests/task2.yaml"),
                             ),
                             name: "snap install".to_owned(),
-                            user: "root".to_owned(),
                             actions: vec![Action::Command(vec!["snap install $snaps".to_owned()])],
                             vars: [("snaps".to_owned(), "discord".to_owned())].into(),
                         },
@@ -455,7 +453,6 @@ mod tests {
                                 .join("resources/test/load_manifests/t470.yaml"),
                         ),
                         name: "set host name".to_owned(),
-                        user: "root".to_owned(),
                         actions: vec![Action::Command(
                             vec!["hostnamectl hostname t470".to_owned()],
                         )],
@@ -476,7 +473,6 @@ mod tests {
                                 .join("resources/test/load_manifests/zen3.yaml"),
                         ),
                         name: "set host name".to_owned(),
-                        user: "root".to_owned(),
                         actions: vec![Action::Command(
                             vec!["hostnamectl hostname zen3".to_owned()],
                         )],
@@ -738,7 +734,6 @@ mod tests {
                 Task {
                     source: None,
                     name: "Task 1".into(),
-                    user: "george".into(),
                     actions: task_1_actions.clone(),
                     vars: IndexMap::new(),
                 },
@@ -746,7 +741,6 @@ mod tests {
                 Task {
                     source: None,
                     name: "Task 2".into(),
-                    user: "george".into(),
                     actions: vec![],
                     vars: IndexMap::new(),
                 },
@@ -754,7 +748,6 @@ mod tests {
                 Task {
                     source: None,
                     name: "Task 3".into(),
-                    user: "george".into(),
                     actions: task_3_actions.clone(),
                     vars: IndexMap::new(),
                 },
@@ -828,7 +821,6 @@ mod tests {
             let task = Task {
                 source: None,
                 name: "API test".into(),
-                user: "george".into(),
                 actions: vec![],
                 vars: IndexMap::new(),
             };

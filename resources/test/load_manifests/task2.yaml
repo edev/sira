@@ -1,5 +1,4 @@
 name: snap install
-user: root
 actions:
   - command:
     - snap install $snaps

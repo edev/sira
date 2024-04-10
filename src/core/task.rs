@@ -26,17 +26,6 @@ pub struct Task {
     /// The [Task]'s name. Used for informational, logging, and debugging purposes.
     pub name: String,
 
-    /// The user on a managed node that should run this [Task]'s [Action]s.
-    ///
-    /// This is **not** the user Sira will use to log into the host; `sira-client` will switch to
-    /// this user to perform actions.
-    ///
-    /// If this field is empty, then [Self::actions] will run as the login user.
-    // TODO Evaluate how much sense this makes. Almost certainly remove it, in light of recent
-    // documentation changes to Action::Command.
-    #[serde(skip_serializing_if = "str::is_empty", default)]
-    pub user: String,
-
     /// The list of [Action]s that comprise this [Task].
     ///
     /// Order is preserved from the source file. Actions are executed in order.

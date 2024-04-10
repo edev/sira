@@ -1,6 +1,5 @@
 ---
 name: apt install
-user: root
 actions:
   - command:
     - apt upgrade
