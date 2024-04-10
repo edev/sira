@@ -334,6 +334,9 @@ pub enum Action {
         indent: bool,
     },
 
+    #[rustfmt::skip]
+    // TODO Add RegexInFile. Update existing docs that mention the lack of a regex action.
+
     /// Transfers a file from the control node to managed nodes.
     ///
     /// The transfer takes place in two stages:
