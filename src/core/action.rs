@@ -23,23 +23,10 @@ pub use line_in_file::line_in_file;
 // Serialize and Deserialize using internal wrapper types that allow us to invoke the methods in
 // serde_yaml::with::singleton_map.
 
-// TODO Ensure that extraneous YAML fields raise errors when deserializing.
-//
-// I am unsure of the scope of this issue, e.g. whether it affects manifests and tasks.
-//
-// Example:
-//
-// # Task
-// ---
-// name: blah
-// actions:
-//   - upload:
-//       from: file
-//       to: file
-//       hackeysack: yes
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 pub enum Action {
     /// Replaces a line in a file or inserts a new line.
     ///
