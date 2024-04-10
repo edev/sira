@@ -343,14 +343,14 @@ pub enum Action {
     /// # Security considerations
     ///
     /// When the file is initially transferred to the managed node, it will be in the Sira user's
-    /// home directory with default permissions. If you need to protect files from being prying
-    /// eyes during this stage, you have several options. First, you may wish to restrict the Sira
-    /// user's home directory, e.g. to `700` or `770` permissions. Second, you may choose to store
-    /// the file in encrypted form on the control node and decrypt it on the managed node after
-    /// transferring it, perhaps using [Action::Command] to run the decryption while storing the
-    /// decryption key securely on the control node.
-    // TODO Either explain how to securely decrypt a file on a managed node or change the advice
-    // above to something more approachable.
+    /// home directory with default permissions (or wherever you have configured SSH sessions to
+    /// start). You may wish to restrict permissions on this directory, e.g. to
+    /// `700` (`u=rwx,g=,o=`) or `770` (`u=rwx,g=u,o=`).
+    ///
+    /// More advanced security procedures, e.g. encrypting Sira configuration data or files at
+    /// rest, are possible but outside of the scope of this documentation. If you find that Sira
+    /// either interferes with or lacks features to support an advanced security procedure you wish
+    /// to apply, please feel free to open an issue to discuss it.
     Upload {
         /// The path to the source file, i.e. the file on the control node.
         ///
