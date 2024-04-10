@@ -82,8 +82,6 @@ impl ClientInterface for Client {
         self.client_command(yaml, signature).await
     }
 
-    // TODO Strongly considering adding automatic recursive upload. Remember to modify sira-client
-    // accordingly!
     async fn upload(
         &mut self,
         from: &str,

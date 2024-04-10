@@ -155,7 +155,6 @@ mod manifest {
                 None => "\
 include:
 - name: Console commands
-  user: bob
   actions:
   - command:
     - pwd
@@ -164,7 +163,6 @@ include:
   vars:
     message: Hello there!
 - name: Transfer config files
-  user: bob
   actions:
   - upload:
       from: ./files/home/bob/.zshrc
@@ -184,7 +182,6 @@ include:
                         Task {
                             source: None,
                             name: "Console commands".to_owned(),
-                            user: "bob".to_owned(),
                             actions: vec![Action::Command(vec![
                                 "pwd".to_owned(),
                                 "echo $message > ./message".to_owned(),
@@ -195,7 +192,6 @@ include:
                         Task {
                             source: None,
                             name: "Transfer config files".to_owned(),
-                            user: "bob".to_owned(),
                             actions: vec![Action::Upload {
                                 from: "./files/home/bob/.zshrc".to_owned(),
                                 to: ".".to_owned(),
@@ -708,7 +704,6 @@ mod task {
     struct Overrides {
         source: Override<Option<&'static str>, Option<Option<&'static str>>>,
         name: Override<Option<&'static str>, Option<&'static str>>,
-        user: Override<Option<&'static str>, Option<&'static str>>,
         actions: Override<Option<&'static str>, Option<Vec<Action>>>,
         vars: Override<Option<&'static str>, Option<IndexMap<String, String>>>,
     }
@@ -719,7 +714,6 @@ mod task {
             Self {
                 source: Override::default(),
                 name: Override::default(),
-                user: Override::default(),
                 actions: Override::default(),
                 vars: Override::default(),
             }
@@ -727,7 +721,6 @@ mod task {
 
         setter!(source, Option<&'static str>);
         setter!(name, &'static str);
-        setter!(user, &'static str);
         setter!(actions, Vec<Action>);
         setter!(vars, IndexMap<String, String>);
 
@@ -782,18 +775,6 @@ mod task {
                 None => "Console commands".to_owned(),
             };
 
-            let user_yaml = match self.user.yaml {
-                Some(yaml) => match yaml.is_empty() {
-                    true => yaml.to_owned(),
-                    false => yaml.to_owned() + "\n",
-                },
-                None => "user: bob\n".to_owned(),
-            };
-            let user = match self.user.value {
-                Some(v) => v.to_owned(),
-                None => "bob".to_owned(),
-            };
-
             let actions_yaml = match self.actions.yaml {
                 Some(yaml) => match yaml.is_empty() {
                     true => yaml.to_owned(),
@@ -826,11 +807,10 @@ mod task {
                 }
             };
 
-            let yaml = format!("{source_yaml}{name_yaml}{user_yaml}{actions_yaml}{vars_yaml}");
+            let yaml = format!("{source_yaml}{name_yaml}{actions_yaml}{vars_yaml}");
             let task = Task {
                 source,
                 name,
-                user,
                 actions,
                 vars,
             };
@@ -896,33 +876,6 @@ mod task {
                     value: "",
                 })
                 .assert_de();
-        }
-    }
-
-    mod user {
-        use super::*;
-
-        /// Verifies that Task::user is initialized to an empty string during deserialization if
-        /// user is missing from the YAML source.
-        #[test]
-        fn deserialization_defaults_to_empty_if_absent() {
-            Overrides::new()
-                .user(Override {
-                    yaml: "",
-                    value: "",
-                })
-                .assert_de();
-        }
-
-        /// Verifies that user is omitted during serialization if Task::user is the empty string.
-        #[test]
-        fn serialization_skips_if_empty() {
-            Overrides::new()
-                .user(Override {
-                    yaml: "",
-                    value: "",
-                })
-                .assert_ser();
         }
     }
 
