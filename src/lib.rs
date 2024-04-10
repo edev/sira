@@ -18,6 +18,12 @@
 //!
 //! 2. Ahem, this not yet written. Pardon the construction dust.
 
+// TODO Separate large files into submodules, particularly breaking up tests.
+// TODO Fill out the top-level documentation above.
+// TODO Write an installation guide.
+// TODO Create a bootstrapping system for both the control node (if warranted) and managed nodes.
+// TODO Create a secure update system.
+
 pub mod config;
 pub mod core;
 pub mod crypto;

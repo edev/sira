@@ -13,6 +13,9 @@ use std::process::Command;
 /// The name of the allowed signers file used to verify actions.
 pub const ALLOWED_SIGNERS_FILE: &str = "action";
 
+// TODO Write a full client application instead of this ad hoc version.
+// TODO Carefully evaluate what's testable in this file and test it.
+
 // TODO Strongly consider changing the arguments to file names.
 //
 // I have been unable to find a way to invoke this binary in Bash without Bash seemingly messing
