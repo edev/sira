@@ -7,10 +7,32 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::ffi::OsStringExt;
+use std::path::Path;
 use std::process::Command;
 
 /// The name of the allowed signers file used to verify actions.
 pub const ALLOWED_SIGNERS_FILE: &str = "action";
+
+// TODO Strongly consider changing the arguments to file names.
+//
+// I have been unable to find a way to invoke this binary in Bash without Bash seemingly messing
+// with the arguments (stripping out newlines). While we don't run into this issue when invoking
+// this binary as part of a Plan, it leads the end user down a dead-end rabbit hole if they try to
+// invoke this binary.
+//
+// The seemingly obvious solution is to write the yaml and the signature to well-known temporary
+// files, e.g. .sira-yaml and .sira-sig.
+//
+// Security analysis:
+//
+// If the action signing key is not in use, then anyone with access to the Sira user can do
+// whatever they want via passwordless `sudo /opt/sira/bin/sira-client`. Thus, write access to the
+// Sira user's home directory (or wherever the Sira user's SSH sessions start) is equivalent to
+// sudo. This should already be secured for several other reasons, so no new access is granted.
+//
+// If the action signing key is in use, then we really don't need to trust the inputs: we can
+// verify them. We must simply ensure that we avoid TOCTOU issues by reading the YAML file to a
+// buffer, verifying that buffer, and then using that buffer.
 
 fn main() -> anyhow::Result<()> {
     // Number of actual arguments (excluding the name of the binary).
@@ -93,7 +115,7 @@ fn main() -> anyhow::Result<()> {
         }
         Action::LineInFile { .. } => line_in_file(&action)?,
         Action::Upload {
-            from: _,
+            from,
             to,
             user,
             group,
@@ -140,7 +162,32 @@ fn main() -> anyhow::Result<()> {
                 mv.arg("-n");
             }
             mv.arg(FILE_TRANSFER_PATH);
-            mv.arg(to);
+
+            // Handle various edge cases on `to`.
+            match to.trim() {
+                "." => {
+                    // We need to use the source file name. Otherwise, we will wind up calling
+                    // `mv FILE_TRANSFER_PATH .`, which is wrong.
+                    let path = Path::new(&from)
+                        .file_name()
+                        .expect("Action::Upload::from should be a file, not a directory");
+                    mv.arg(path)
+                }
+                to if Path::new(to).is_dir() => {
+                    // `to` is a directory, so we need to add the source file name to the
+                    // destination. Otherwise, we will implicitly use FILE_TRANSFER_PATH as the
+                    // file name.
+                    let file_name = Path::new(&from)
+                        .file_name()
+                        .expect("Action::Upload::from should be a file, not a directory");
+                    let path = Path::new(to).join(file_name);
+                    mv.arg(path)
+                }
+                // Intentionally unhandled case: "~" - almost certainly not what the user meant,
+                // but the docs warned about this, so we'll trust the user.
+                _ => mv.arg(to),
+            };
+
             if let Err(e) = run_command(&mut mv, None) {
                 // Try to delete the temporary file for security, but if that fails, silently
                 // ignore the failure. Either way, return the error from `mv`.
@@ -161,7 +208,7 @@ fn main() -> anyhow::Result<()> {
 // `None`, then an approximation will be used in the event of an error.
 fn run_command(command: &mut Command, command_string: Option<String>) -> anyhow::Result<()> {
     // If this is being run locally, we want stdin/out/err to work normally. If it's being run
-    // via ssh, we want to defer to the ssh client's wishes. Therefore, we use status, not output.
+    // via SSH, we want to defer to the SSH client's wishes. Therefore, we use status, not output.
     let child_exit_status = command.status()?;
     if !child_exit_status.success() {
         let exit_code_message = match child_exit_status.code() {
