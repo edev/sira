@@ -337,6 +337,16 @@ pub enum Action {
     #[rustfmt::skip]
     // TODO Add RegexInFile. Update existing docs that mention the lack of a regex action.
 
+    Script {
+        name: String,
+
+        #[serde(skip_serializing_if = "Action::user_or_group_is_default")]
+        #[serde(default = "Action::default_user_and_group")]
+        user: String,
+
+        contents: String,
+    },
+
     /// Transfers a file from the control node to managed nodes.
     ///
     /// The transfer takes place in two stages:
@@ -502,7 +512,7 @@ impl Action {
                         .iter()
                         .map(|command| Command(vec![command.to_owned()])),
                 ),
-                action @ LineInFile { .. } | action @ Upload { .. } => {
+                action @ LineInFile { .. } | action @ Upload { .. } | action @ Script { .. } => {
                     output.push(action.to_owned())
                 }
             }
@@ -717,6 +727,15 @@ impl HostAction {
                     replace(line);
                     pattern.as_mut().map(replace);
                     after.as_mut().map(replace);
+                }
+                Script {
+                    name,
+                    user,
+                    contents,
+                } => {
+                    replace(name);
+                    replace(user);
+                    replace(contents);
                 }
                 Upload {
                     from,
@@ -995,6 +1014,7 @@ upload:
                     after: Some("d".to_string()),
                     indent: false,
                 },
+                // FIXME Add Script variants.
                 Upload {
                     from: "g".to_string(),
                     to: "h".to_string(),
@@ -1015,6 +1035,7 @@ upload:
                     after: Some("d".to_string()),
                     indent: false,
                 },
+                // FIXME Add Script variants.
                 Upload {
                     from: "g".to_string(),
                     to: "h".to_string(),
@@ -1108,6 +1129,8 @@ upload:
         mod compile {
             use super::*;
 
+            // FIXME Update tests to include Action::Script.
+
             // Compiles an Action without concerning the caller with the details. Returns a String
             // that should have been modified by Compile.
             //
@@ -1188,6 +1211,11 @@ upload:
                                 after: Some(action_string.clone()),
                                 indent: true,
                             },
+                            Script {
+                                name: action_string.clone(),
+                                user: action_string.clone(),
+                                contents: action_string.clone(),
+                            },
                             Upload {
                                 from: action_string.clone(),
                                 to: action_string.clone(),
@@ -1222,6 +1250,11 @@ upload:
                             pattern: Some(expected_string.clone()),
                             after: Some(expected_string.clone()),
                             indent: true,
+                        },
+                        Script { .. } => Script {
+                            name: expected_string.clone(),
+                            user: expected_string.clone(),
+                            contents: expected_string.clone(),
                         },
                         Upload { .. } => Upload {
                             from: expected_string.clone(),

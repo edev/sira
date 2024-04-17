@@ -117,6 +117,11 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Action::LineInFile { .. } => line_in_file(&action)?,
+        // FIXME Either implement Script logic here based on transferring the YAML, or have this
+        // return an error explaining that this action is executed through the control node. It
+        // probably makes marginally more sense to implement the logic here, however. That allows
+        // slightly more utility for the administrator.
+        Action::Script { .. } => todo!(),
         Action::Upload {
             from,
             to,

@@ -1,8 +1,10 @@
 //! Provides a [tokio]-based [Plan] runner that runs on each host in parallel.
 
 use crate::core::plan::HostPlanIntoIter;
+use crate::core::Action;
 use crate::core::Plan;
 use crate::crypto::{self, SigningOutcome};
+use std::process::Output;
 
 mod client;
 use client::*;
@@ -91,10 +93,11 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
             }
         }
 
-        use crate::core::Action::*;
+        use Action::*;
         let output = match &action {
             Command(_) => client.command(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
+            Script { .. } => run_script(&mut client, &action).await?,
             Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
         };
 
@@ -105,6 +108,14 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
         }
     }
     Ok(())
+}
+
+/// Runs a [Script] on a single client using existing [ClientInterface] methods.
+// FIXME Add tests covering this function when called via run_host_plan.
+// FIXME Decide whether to implement it here or just send the YAML to the client (which is probably
+// slightly preferable).
+async fn run_script<C: ClientInterface>(client: &mut C, script: &Action) -> anyhow::Result<Output> {
+    todo!()
 }
 
 #[cfg(test)]
