@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context};
 use shlex::Shlex;
-use sira::core::action::{line_in_file, FILE_TRANSFER_PATH};
-use sira::core::Action;
+use sira::core::action::{line_in_file, script, Action, FILE_TRANSFER_PATH};
 use sira::crypto;
 use std::env;
 use std::ffi::OsString;
@@ -78,10 +77,14 @@ fn main() -> anyhow::Result<()> {
         );
 
         // Use the native `mktemp` utility to securely store the signature.
-        let signature_path: OsString = {
+        let signature_path = {
             let output = Command::new("mktemp").output()?;
             if output.status.success() {
-                OsString::from_vec(output.stdout)
+                // Trim any trailing white space, e.g. a trailing newline.
+                let mut path = String::from_utf8(output.stdout)
+                    .expect("mktemp returned a path that was not UTF-8");
+                path.truncate(path.trim_end().len());
+                path
             } else {
                 bail!(
                     "mktemp exited with error:\n{:?}",
@@ -117,11 +120,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Action::LineInFile { .. } => line_in_file(&action)?,
-        // FIXME Either implement Script logic here based on transferring the YAML, or have this
-        // return an error explaining that this action is executed through the control node. It
-        // probably makes marginally more sense to implement the logic here, however. That allows
-        // slightly more utility for the administrator.
-        Action::Script { .. } => todo!(),
+        Action::Script { .. } => script(&action)?,
         Action::Upload {
             from,
             to,

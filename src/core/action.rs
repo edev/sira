@@ -15,6 +15,9 @@ pub const FILE_TRANSFER_PATH: &str = ".sira-transfer";
 pub mod line_in_file;
 pub use line_in_file::line_in_file;
 
+pub mod script;
+pub use script::script;
+
 /// The types of actions that Sira can perform on a client.
 // In order to allow Action to (de)serialize using singleton map notation rather than externally
 // tagged notation, we adapt the method used here: https://github.com/dtolnay/serde-yaml/issues/363

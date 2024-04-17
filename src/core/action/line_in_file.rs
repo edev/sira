@@ -1,3 +1,5 @@
+//! Client-side logic for [Action::LineInFile].
+
 use super::Action;
 use std::borrow::Cow;
 use std::fs;

@@ -35,6 +35,12 @@ pub trait ClientInterface {
         signature: Option<Vec<u8>>,
     ) -> Result<Output, openssh::Error>;
 
+    async fn script(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error>;
+
     /// Upload a file from the Sira control node to the client over SSH.
     async fn upload(
         &mut self,
@@ -75,6 +81,14 @@ impl ClientInterface for Client {
     }
 
     async fn line_in_file(
+        &mut self,
+        yaml: &str,
+        signature: Option<Vec<u8>>,
+    ) -> Result<Output, openssh::Error> {
+        self.client_command(yaml, signature).await
+    }
+
+    async fn script(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
