@@ -34,7 +34,7 @@ pub fn line_in_file(action: &Action) -> io::Result<()> {
             after,
             indent,
         } => (path, line, pattern, after, indent),
-        _ => panic!("called _line_in_file with an Action that was not a LineInFile: {action:?}"),
+        _ => panic!("called line_in_file with an Action that was not a LineInFile: {action:?}"),
     };
 
     let mut file = fs::read_to_string(path)?;
