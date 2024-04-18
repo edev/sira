@@ -4,7 +4,8 @@
 //! the managed node runs through [mod@crate::run_plan].
 
 use anyhow::{bail, Context};
-use std::ffi::OsString;
+use shlex::Quoter;
+use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
 use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
@@ -64,6 +65,68 @@ pub fn mktemp() -> anyhow::Result<(File, String)> {
         .open(&path)
         .with_context(|| format!("failed to open a file created by mktemp: {path}"))?;
     Ok((file, path))
+}
+
+/// Runs a command as a new process and waits for it to complete.
+///
+/// Standard input, output, and error are inherited from the parent process.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the command runs successfully (as indicated by exit status).
+///
+/// # Errors
+///
+/// Returns an error if the command cannot be run for any reason or exits with an error.
+///
+/// # Example
+///
+/// ```
+/// use sira::client;
+///
+/// // Runs command: cargo doc --document-private-items
+/// assert!(client::run("cargo", &["doc", "--document-private-items"]).is_ok());
+/// ```
+pub fn run<C: AsRef<OsStr>, A: AsRef<OsStr>>(cmd: C, args: &[A]) -> anyhow::Result<()> {
+    // If needed for error output, join cmd and args with spaces to construct a user-friendly
+    // representation of the command.
+    //
+    // There are at least three likely ways this information might be used:
+    // 1. In separate fields as part of this Rust function and calling code
+    // 2. In a YAML file
+    // 3. In the user's shell
+    //
+    // These all present the information a bit differently, so there is no canonical representation
+    // to apply. We just want to make a best effort to indicate to the user what went wrong.
+    let command = || {
+        // Build a Vec of the command and its arguments as Strings.
+        let mut components = Vec::with_capacity(args.len() + 1);
+        components.push(cmd.as_ref().to_string_lossy().to_string());
+        components.extend(
+            args.iter()
+                .map(|a| a.as_ref().to_string_lossy().to_string()),
+        );
+
+        // Try to use shlex to properly quote the string. If that fails, naively join with spaces.
+        match Quoter::new().join(components.iter().map(|s| &s[..])) {
+            Ok(s) => s,
+            Err(_) => components.join(" "),
+        }
+    };
+
+    let status = Command::new(&cmd)
+        .args(args)
+        .status()
+        .with_context(|| format!("failed to start command: {}", command()))?;
+
+    if !status.success() {
+        let error = match status.code() {
+            Some(i) => format!("exit code {i}"),
+            None => "error".to_string(),
+        };
+        bail!("command exited with {error}: {}", command());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

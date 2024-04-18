@@ -2,10 +2,9 @@
 
 use crate::client;
 use crate::core::Action;
-use anyhow::{bail, Context};
+use anyhow::Context;
 use std::fs;
 use std::io::Write;
-use std::process::Command;
 
 /// Implements client-side logic for [Action::Script].
 ///
@@ -32,30 +31,11 @@ pub fn script(action: &Action) -> anyhow::Result<()> {
     drop(script_file);
 
     // std::fs can chmod but not chown. We'll use our own, nicer interface for both.
-    run("chmod", ["500", &script_path])?;
-    run("chown", [user, &script_path])?;
+    client::run("chmod", &["500", &script_path])?;
+    client::run("chown", &[user, &script_path])?;
 
-    let result = run("sudo", ["-u", user, &script_path]);
+    let result = client::run("sudo", &["-u", user, &script_path]);
 
     let _ = fs::remove_file(&script_path);
     result
-}
-
-fn run<const N: usize>(cmd: &str, args: [&str; N]) -> anyhow::Result<()> {
-    // Descriptive form of command used for error output.
-    let command = || format!("{cmd} {}", args.join(" "));
-
-    let status = Command::new(cmd)
-        .args(args)
-        .status()
-        .with_context(|| format!("failed to start command: {}", command()))?;
-
-    if !status.success() {
-        let error = match status.code() {
-            Some(i) => format!("exit code {i}"),
-            None => "error".to_string(),
-        };
-        bail!("command exited with {error}: {}", command());
-    }
-    Ok(())
 }

@@ -1,6 +1,6 @@
 use super::*;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 
 mod mktemp {
     use super::*;
@@ -18,5 +18,63 @@ mod mktemp {
         let contents = fs::read_to_string(path)?;
         assert_eq!(contents, test_string);
         Ok(())
+    }
+}
+
+mod run {
+    use super::*;
+
+    #[test]
+    fn empty_cmd_or_failure_to_start() {
+        let error = run("", &["a", "b", "c"]).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("failed to start command: '' a b c"));
+        let error: io::Error = error.downcast().unwrap();
+        assert_eq!(io::ErrorKind::NotFound, error.kind());
+    }
+
+    #[test]
+    fn empty_args() -> anyhow::Result<()> {
+        run::<&str, &str>("echo", &[])
+    }
+
+    #[test]
+    fn exit_failure() {
+        let error = run("bash", &["-c", "false"]).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("command exited with exit code 1: bash -c false"));
+    }
+
+    #[test]
+    fn exit_success() -> anyhow::Result<()> {
+        run("bash", &["-c", "true"])
+    }
+
+    #[test]
+    fn command_representation() {
+        // Test cases, in format: (cmd, args, expected_output). All cases must generate error
+        // messages, or there will be no output to compare.
+        //
+        // We deliberately don't go into much detail, here, because we don't want to depend on
+        // shlex's behavior in our tests any more than necessary.
+        let cases = [
+            // Components that don't need modification are unmodified.
+            ("bash", ["-c", "false"], "bash -c false"),
+            // Components that contain spaces are quoted.
+            (
+                "bash",
+                ["-c", "echo -n && false"],
+                "bash -c 'echo -n && false'",
+            ),
+        ];
+        for (cmd, args, expected) in cases {
+            let error = run(cmd, &args).unwrap_err();
+            assert!(
+                error.to_string().contains(expected),
+                "error did not contain expected string:\nExpected: {expected}\nActual: {error}",
+            );
+        }
     }
 }
