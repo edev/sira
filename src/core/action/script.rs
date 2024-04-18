@@ -1,10 +1,10 @@
 //! Client-side logic for [Action::Script].
 
+use crate::client;
 use crate::core::Action;
 use anyhow::{bail, Context};
-use std::ffi::OsString;
 use std::fs;
-use std::os::unix::ffi::OsStringExt;
+use std::io::Write;
 use std::process::Command;
 
 /// Implements client-side logic for [Action::Script].
@@ -21,27 +21,15 @@ pub fn script(action: &Action) -> anyhow::Result<()> {
     };
 
     // We need a temporary file that the target user can access, so we can't put it in the Sira
-    // user's SSH starting directory (e.g. their home directory). Bonus: this path is absolute, so
-    // we won't have issues looking it up in PATH later like we would with a file in the current
-    // directory.
-    let script_path = {
-        let output = Command::new("mktemp").output()?;
-        if output.status.success() {
-            // Trim any trailing white space, e.g. a trailing newline.
-            let mut path = String::from_utf8(output.stdout)
-                .expect("mktemp returned a path that was not UTF-8");
-            path.truncate(path.trim_end().len());
-            path
-        } else {
-            bail!(
-                "mktemp exited with error:\n{:?}",
-                OsString::from_vec(output.stderr),
-            );
-        }
-    };
+    // user's SSH starting directory (e.g. their home directory). Bonus: this path should be
+    // absolute, so we won't have issues looking it up in PATH later like we would with a file in
+    // the current directory.
+    let (mut script_file, script_path) = client::mktemp()?;
 
-    fs::write(&script_path, contents.as_bytes())
+    script_file
+        .write_all(contents.as_bytes())
         .context("failed to write script to temporary file")?;
+    drop(script_file);
 
     // std::fs can chmod but not chown. We'll use our own, nicer interface for both.
     run("chmod", ["500", &script_path])?;

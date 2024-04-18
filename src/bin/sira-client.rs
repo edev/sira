@@ -1,11 +1,11 @@
 use anyhow::{anyhow, bail, Context};
 use shlex::Shlex;
+use sira::client;
 use sira::core::action::{line_in_file, script, Action, FILE_TRANSFER_PATH};
 use sira::crypto;
 use std::env;
-use std::ffi::OsString;
 use std::fs;
-use std::os::unix::ffi::OsStringExt;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -76,24 +76,12 @@ fn main() -> anyhow::Result<()> {
             helpful error message to the user",
         );
 
-        // Use the native `mktemp` utility to securely store the signature.
-        let signature_path = {
-            let output = Command::new("mktemp").output()?;
-            if output.status.success() {
-                // Trim any trailing white space, e.g. a trailing newline.
-                let mut path = String::from_utf8(output.stdout)
-                    .expect("mktemp returned a path that was not UTF-8");
-                path.truncate(path.trim_end().len());
-                path
-            } else {
-                bail!(
-                    "mktemp exited with error:\n{:?}",
-                    OsString::from_vec(output.stderr),
-                );
-            }
-        };
-        fs::write(&signature_path, signature)
+        // Write the signature to a secure temporary file so we can pass it to ssh-keygen.
+        let (mut signature_file, signature_path) = client::mktemp()?;
+        signature_file
+            .write_all(signature.as_bytes())
             .context("sira-client encountered an error writing action signature to disk")?;
+        drop(signature_file);
 
         crypto::verify(
             yaml.as_bytes(),
