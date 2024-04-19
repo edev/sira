@@ -294,11 +294,18 @@ pub enum Action {
     /// Runs a script on managed nodes.
     ///
     /// [Action::Script] lets you write scripts in your task files and run them on managed nodes.
-    /// Sira takes the following steps for each script:
+    /// Write the full script (including shebang) under [Action::Script::contents], using any
+    /// language you like, and Sira will deploy it to managed nodes.
+    ///
+    /// Sira runs each [Action::Script] on a given node as follows:
     /// 1. Sira writes the script to a temporary file that [Action::Script::user] owns and only
     ///    that user can access.
     /// 1. Sira runs the script as [Action::Script::user].
     /// 1. Sira removes the temporary file.
+    ///
+    /// It's up to you to ensure that managed nodes are set up to run scripts in whatever langauge
+    /// you choose. Sira deliberately contains no logic to automate the setup for any languages. It
+    /// simply hands the file to the OS's program loader.
     ///
     /// # Example
     /// ```text
