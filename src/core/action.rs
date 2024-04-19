@@ -15,6 +15,9 @@ pub const FILE_TRANSFER_PATH: &str = ".sira-transfer";
 pub mod line_in_file;
 pub use line_in_file::line_in_file;
 
+pub mod script;
+pub use script::script;
+
 /// The types of actions that Sira can perform on a client.
 // In order to allow Action to (de)serialize using singleton map notation rather than externally
 // tagged notation, we adapt the method used here: https://github.com/dtolnay/serde-yaml/issues/363
@@ -22,7 +25,6 @@ pub use line_in_file::line_in_file;
 // This method derives remote definitions for (de)serializing and then manually implements
 // Serialize and Deserialize using internal wrapper types that allow us to invoke the methods in
 // serde_yaml::with::singleton_map.
-
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(remote = "Self")]
@@ -35,9 +37,11 @@ pub enum Action {
     /// When `sira-client` processes an [Action::Command], it creates the requested process
     /// directly rather than through a shell. This is done primarily for compatibility reasons, so
     /// that you are free to use whatever shell you wish without needing to ask whether it is
-    /// compatible with Sira. Therefore, if you wish to use shell features in an [Action::Command],
-    /// such as redirecting I/O or setting up pipelines, you will need to invoke your desired
-    /// shell. For example:
+    /// compatible with Sira.
+    ///
+    /// The preferred way to use shell features in an [Action] is to use [Action::Script]. However,
+    /// if you wish to use shell features in an [Action::Command], such as redirecting I/O or
+    /// setting up pipelines, you will need to invoke your desired shell. For example:
     ///
     /// ```text
     /// ---
@@ -53,58 +57,8 @@ pub enum Action {
     ///
     /// # Running commands as other users
     ///
-    /// If you need to run a single command as another user, try `sudo -u <user> <command>`.
-    ///
-    /// If you need to run lots of commands as another user, consider doing the following:
-    /// 1. Write a shell script that runs the commands. Commit it to source control as part of
-    ///    your Sira configuration, e.g. in a `/files` directory.
-    /// 2. (Optional) For extra security, sign the shell script on the development node and commit
-    ///    it to source control:
-    ///     ```text
-    ///     ssh-keygen -Y sign -f <action-private-key> -n sira <file-name...>
-    ///     ```
-    /// 3. Use [Action::Upload] to transfer the file (and optionally its signature):
-    ///     ```text
-    ///     ---
-    ///     name: Upload <user>/<file-name>
-    ///     actions:
-    ///       - upload:
-    ///           from: <file-name>
-    ///           to: /home/<user>/<file-name>
-    ///           user: <user>
-    ///           group: <user>
-    ///           permissions: 0500
-    ///       # Optional.
-    ///       - upload:
-    ///           from: <file-name>.sig
-    ///           to: /home/<user>/<file-name>.sig
-    ///           user: <user>
-    ///           group: <user>
-    ///           permissions: 0400
-    ///     ```
-    /// 4. (Optional) Use [Action::Command] to verify the file's signature:
-    ///     ```text
-    ///     ---
-    ///     name: Verify signature
-    ///     actions:
-    ///       - command:
-    ///           # YAML plain scalars like the one below fold line breaks into spaces,
-    ///           # so bash its arguments on one line.
-    ///           - bash -c "ssh-keygen -Y verify
-    ///                  -f /etc/sira/allowed_signers/action
-    ///                  -I sira
-    ///                  -n sira
-    ///                  -s <signature-file>
-    ///                  < <file-to-verify>"
-    ///     ```
-    /// 5. Run the shell script using: `sudo -u <user> <script>`:
-    ///     ```text
-    ///     ---
-    ///     name: Run <user>/<file-name>
-    ///     actions:
-    ///       - command:
-    ///           - sudo -u <user> /home/<user>/<file-name>
-    ///     ```
+    /// If you need to run a single command as another user, try `sudo -u <user> <command>`. If you
+    /// need to run lots of commands as another user, consider using [Action::Script].
     ///
     /// # Why isn't there an [Action] to run a local command on the control node?
     ///
@@ -337,6 +291,64 @@ pub enum Action {
     #[rustfmt::skip]
     // TODO Add RegexInFile. Update existing docs that mention the lack of a regex action.
 
+    /// Runs a script on managed nodes.
+    ///
+    /// [Action::Script] lets you write scripts in your task files and run them on managed nodes.
+    /// Write the full script (including shebang) under [Action::Script::contents], using any
+    /// language you like, and Sira will deploy it to managed nodes.
+    ///
+    /// Sira runs each [Action::Script] on a given node as follows:
+    /// 1. Sira writes the script to a temporary file that [Action::Script::user] owns and only
+    ///    that user can access.
+    /// 1. Sira runs the script as [Action::Script::user].
+    /// 1. Sira removes the temporary file.
+    ///
+    /// It's up to you to ensure that managed nodes are set up to run scripts in whatever langauge
+    /// you choose. Sira deliberately contains no logic to automate the setup for any languages. It
+    /// simply hands the file to the OS's program loader.
+    ///
+    /// # Example
+    /// ```text
+    /// ---
+    /// name: Run scripts as sira and root
+    /// actions:
+    ///   - script:
+    ///       name: Run script as sira
+    ///       user: sira
+    ///       # Note the "|" after contents. This enables block scalar syntax, which tells Sira to
+    ///       # treat the shebang as part of contents and not as a YAML comment.
+    ///       contents: |
+    ///         #!/bin/bash
+    ///
+    ///         cd
+    ///         echo "$(date)" > sira.script.ok
+    ///   - script:
+    ///       name: Run script as root (default)
+    ///       contents: |
+    ///         #!/bin/bash
+    ///
+    ///         cd
+    ///         echo "$(date)" > root.script.ok
+    /// ```
+    Script {
+        /// A user-friendly name or description for the script.
+        name: String,
+
+        /// The user on the managed node that will run the script. Defaults to root.
+        ///
+        /// Please note that the script will start in the Sira users's SSH starting directory
+        /// (typically their home directory). If you intend to run a script as a different user,
+        /// you might want to begin the script with `cd` to switch to that user's home directory.
+        #[serde(skip_serializing_if = "Action::user_or_group_is_default")]
+        #[serde(default = "Action::default_user_and_group")]
+        user: String,
+
+        /// The contents of the script. This should start with a shebang. You may want to use YAML
+        /// block scalar syntax (as in the example) to prevent the shebang from being parsed as a
+        /// YAML comment.
+        contents: String,
+    },
+
     /// Transfers a file from the control node to managed nodes.
     ///
     /// The transfer takes place in two stages:
@@ -502,7 +514,7 @@ impl Action {
                         .iter()
                         .map(|command| Command(vec![command.to_owned()])),
                 ),
-                action @ LineInFile { .. } | action @ Upload { .. } => {
+                action @ LineInFile { .. } | action @ Upload { .. } | action @ Script { .. } => {
                     output.push(action.to_owned())
                 }
             }
@@ -718,6 +730,15 @@ impl HostAction {
                     pattern.as_mut().map(replace);
                     after.as_mut().map(replace);
                 }
+                Script {
+                    name,
+                    user,
+                    contents,
+                } => {
+                    replace(name);
+                    replace(user);
+                    replace(contents);
+                }
                 Upload {
                     from,
                     to,
@@ -870,6 +891,39 @@ line_in_file:
                 }
             }
 
+            mod script {
+                use super::*;
+
+                #[test]
+                fn works() {
+                    let yaml = "\
+script:
+  name: a
+  user: b
+  contents: c\n";
+                    let action = Action::Script {
+                        name: "a".to_string(),
+                        user: "b".to_string(),
+                        contents: "c".to_string(),
+                    };
+                    check(yaml, action);
+                }
+
+                #[test]
+                fn user_defaults_to_root() {
+                    let yaml = "\
+script:
+  name: a
+  contents: c\n";
+                    let action = Action::Script {
+                        name: "a".to_string(),
+                        user: "root".to_string(),
+                        contents: "c".to_string(),
+                    };
+                    check(yaml, action);
+                }
+            }
+
             mod upload {
                 use super::*;
 
@@ -995,12 +1049,17 @@ upload:
                     after: Some("d".to_string()),
                     indent: false,
                 },
+                Script {
+                    name: "e".to_string(),
+                    user: "g".to_string(),
+                    contents: "h".to_string(),
+                },
                 Upload {
-                    from: "g".to_string(),
-                    to: "h".to_string(),
-                    user: "h".to_string(),
-                    group: "i".to_string(),
-                    permissions: Some("j".to_string()),
+                    from: "h".to_string(),
+                    to: "i".to_string(),
+                    user: "j".to_string(),
+                    group: "k".to_string(),
+                    permissions: Some("l".to_string()),
                     overwrite: true,
                 },
             ];
@@ -1015,12 +1074,17 @@ upload:
                     after: Some("d".to_string()),
                     indent: false,
                 },
+                Script {
+                    name: "e".to_string(),
+                    user: "g".to_string(),
+                    contents: "h".to_string(),
+                },
                 Upload {
-                    from: "g".to_string(),
-                    to: "h".to_string(),
-                    user: "h".to_string(),
-                    group: "i".to_string(),
-                    permissions: Some("j".to_string()),
+                    from: "h".to_string(),
+                    to: "i".to_string(),
+                    user: "j".to_string(),
+                    group: "k".to_string(),
+                    permissions: Some("l".to_string()),
                     overwrite: true,
                 },
             ];
@@ -1188,6 +1252,11 @@ upload:
                                 after: Some(action_string.clone()),
                                 indent: true,
                             },
+                            Script {
+                                name: action_string.clone(),
+                                user: action_string.clone(),
+                                contents: action_string.clone(),
+                            },
                             Upload {
                                 from: action_string.clone(),
                                 to: action_string.clone(),
@@ -1222,6 +1291,11 @@ upload:
                             pattern: Some(expected_string.clone()),
                             after: Some(expected_string.clone()),
                             indent: true,
+                        },
+                        Script { .. } => Script {
+                            name: expected_string.clone(),
+                            user: expected_string.clone(),
+                            contents: expected_string.clone(),
                         },
                         Upload { .. } => Upload {
                             from: expected_string.clone(),

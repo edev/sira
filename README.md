@@ -46,7 +46,9 @@ Sira's guiding principles are as follows:
 
 ## Operating system support
 
-I test and use Sira on Debian Linux using amd64 CPUs. I believe it should work on BSD and perhaps other Unix-like OSes, but I have not personally tested them. It absolutely **will not** manage systems that are binary-incompatible with the host. It also absolutely **will not** work on Windows.
+Sira is only tested on Linux with 64-bit x86 CPUs. It might work on other Unix-like systems such as MacOS and BSD, and it might work on other architectures like 64-bit Arm, but these are untested. It absolutely **will not** work on Windows.
+
+Since Sira is written in Rust and compiled to binary, it absolutely **will not** manage systems that are binary-incompatible with the control node. For instance, an x86 control node will not manage Arm nodes.
 
 ## License
 
