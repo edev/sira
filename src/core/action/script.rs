@@ -25,13 +25,17 @@ pub fn script(action: &Action) -> anyhow::Result<()> {
     // the current directory.
     let (mut script_file, script_path) = client::mktemp()?;
 
+    // std::fs can chmod but not chown. We'll use our own, nicer interface for both.
+    //
+    // mktemp might already set appropriate permissions, but we will make sure no one can read the
+    // file before we write the script.
+    client::run("chmod", &["700", &script_path])?;
+
     script_file
         .write_all(contents.as_bytes())
         .context("failed to write script to temporary file")?;
     drop(script_file);
 
-    // std::fs can chmod but not chown. We'll use our own, nicer interface for both.
-    client::run("chmod", &["500", &script_path])?;
     client::run("chown", &[user, &script_path])?;
 
     let result = client::run("sudo", &["-u", user, &script_path]);
