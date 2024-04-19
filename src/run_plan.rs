@@ -1,6 +1,7 @@
 //! Provides a [tokio]-based [Plan] runner that runs on each host in parallel.
 
 use crate::core::plan::HostPlanIntoIter;
+use crate::core::Action;
 use crate::core::Plan;
 use crate::crypto::{self, SigningOutcome};
 
@@ -91,10 +92,11 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
             }
         }
 
-        use crate::core::Action::*;
+        use Action::*;
         let output = match &action {
             Command(_) => client.command(&yaml, sign(&yaml)?).await?,
             LineInFile { .. } => client.line_in_file(&yaml, sign(&yaml)?).await?,
+            Script { .. } => client.script(&yaml, sign(&yaml)?).await?,
             Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
         };
 
@@ -375,6 +377,14 @@ mod tests {
                         signature,
                         openssh::Error::Disconnected,
                     )
+                }
+
+                async fn script(
+                    &mut self,
+                    yaml: &str,
+                    signature: Option<Vec<u8>>,
+                ) -> Result<Output, openssh::Error> {
+                    self.record("script", yaml, signature, openssh::Error::Disconnected)
                 }
 
                 async fn upload(

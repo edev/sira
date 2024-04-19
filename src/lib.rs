@@ -24,6 +24,7 @@
 // TODO Create a bootstrapping system for both the control node (if warranted) and managed nodes.
 // TODO Create a secure update system.
 
+pub mod client;
 pub mod config;
 pub mod core;
 pub mod crypto;

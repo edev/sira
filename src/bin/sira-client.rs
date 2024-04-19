@@ -1,14 +1,13 @@
 use anyhow::{anyhow, bail, Context};
 use shlex::Shlex;
-use sira::core::action::{line_in_file, FILE_TRANSFER_PATH};
-use sira::core::Action;
+use sira::client;
+use sira::core::action::{line_in_file, script, Action, FILE_TRANSFER_PATH};
 use sira::crypto;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::os::unix::ffi::OsStringExt;
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
 
 /// The name of the allowed signers file used to verify actions.
 pub const ALLOWED_SIGNERS_FILE: &str = "action";
@@ -77,20 +76,12 @@ fn main() -> anyhow::Result<()> {
             helpful error message to the user",
         );
 
-        // Use the native `mktemp` utility to securely store the signature.
-        let signature_path: OsString = {
-            let output = Command::new("mktemp").output()?;
-            if output.status.success() {
-                OsString::from_vec(output.stdout)
-            } else {
-                bail!(
-                    "mktemp exited with error:\n{:?}",
-                    OsString::from_vec(output.stderr),
-                );
-            }
-        };
-        fs::write(&signature_path, signature)
+        // Write the signature to a secure temporary file so we can pass it to ssh-keygen.
+        let (mut signature_file, signature_path) = client::mktemp()?;
+        signature_file
+            .write_all(signature.as_bytes())
             .context("sira-client encountered an error writing action signature to disk")?;
+        drop(signature_file);
 
         crypto::verify(
             yaml.as_bytes(),
@@ -113,10 +104,11 @@ fn main() -> anyhow::Result<()> {
                     .next()
                     .ok_or(anyhow!("sira-client received a blank command"))?;
                 let args: Vec<_> = words.collect();
-                run_command(Command::new(command).args(&args), Some(command_string))?;
+                client::run(command, &args)?;
             }
         }
         Action::LineInFile { .. } => line_in_file(&action)?,
+        Action::Script { .. } => script(&action)?,
         Action::Upload {
             from,
             to,
@@ -143,28 +135,21 @@ fn main() -> anyhow::Result<()> {
             // permissions, then we don't want to change the user or group, thereby granting
             // additional potential access, before we restrict permissions for said user and group.
             if let Some(permissions) = permissions {
-                run_command(
-                    Command::new("chmod")
-                        .arg(permissions)
-                        .arg(FILE_TRANSFER_PATH),
-                    None,
-                )?;
+                client::run("chmod", &[&permissions[..], FILE_TRANSFER_PATH])?;
             }
 
             // chown the temporary file to its final state.
-            run_command(
-                Command::new("chown")
-                    .arg(format!("{user}:{group}"))
-                    .arg(FILE_TRANSFER_PATH),
-                None,
+            client::run(
+                "chown",
+                &[&format!("{user}:{group}")[..], FILE_TRANSFER_PATH],
             )?;
 
             // Install the file, i.e. mv the file into place.
-            let mut mv = Command::new("mv");
+            let mut args: Vec<OsString> = Vec::new();
             if !overwrite {
-                mv.arg("-n");
+                args.push("-n".into());
             }
-            mv.arg(FILE_TRANSFER_PATH);
+            args.push(FILE_TRANSFER_PATH.into());
 
             // Handle various edge cases on `to`.
             match to.trim() {
@@ -174,7 +159,7 @@ fn main() -> anyhow::Result<()> {
                     let path = Path::new(&from)
                         .file_name()
                         .expect("Action::Upload::from should be a file, not a directory");
-                    mv.arg(path)
+                    args.push(path.into())
                 }
                 to if Path::new(to).is_dir() => {
                     // `to` is a directory, so we need to add the source file name to the
@@ -184,20 +169,20 @@ fn main() -> anyhow::Result<()> {
                         .file_name()
                         .expect("Action::Upload::from should be a file, not a directory");
                     let path = Path::new(to).join(file_name);
-                    mv.arg(path)
+                    args.push(path.into())
                 }
                 // Intentionally unhandled case: "~" - almost certainly not what the user meant,
                 // but the docs warned about this, so we'll trust the user.
-                _ => mv.arg(to),
+                _ => args.push(to.into()),
             };
 
-            if let Err(e) = run_command(&mut mv, None) {
+            if let Err(e) = client::run("mv", &args) {
                 // Try to delete the temporary file for security, but if that fails, silently
                 // ignore the failure. Either way, return the error from `mv`.
                 //
                 // We need to invoke `rm` instead of of using std::fs so we can resolve the path
                 // the same way as `mv` and the other commands.
-                let _ = Command::new("rm").arg(FILE_TRANSFER_PATH).status();
+                let _ = client::run("rm", &[FILE_TRANSFER_PATH]);
                 return Err(e);
             }
         }
@@ -209,21 +194,6 @@ fn main() -> anyhow::Result<()> {
 //
 // `command_string` should be a precise text-form equivalent of `command`. If `command_string` is
 // `None`, then an approximation will be used in the event of an error.
-fn run_command(command: &mut Command, command_string: Option<String>) -> anyhow::Result<()> {
-    // If this is being run locally, we want stdin/out/err to work normally. If it's being run
-    // via SSH, we want to defer to the SSH client's wishes. Therefore, we use status, not output.
-    let child_exit_status = command.status()?;
-    if !child_exit_status.success() {
-        let exit_code_message = match child_exit_status.code() {
-            Some(i) => format!("exit code {i}"),
-            None => "error".to_string(),
-        };
-        let command_string = command_string.unwrap_or_else(|| format!("{command:?}"));
-        bail!("command exited with {exit_code_message}: {command_string}");
-    }
-    Ok(())
-}
-
 fn error_missing_allowed_signers_file() -> anyhow::Result<()> {
     bail!(
         "Please install the action allowed signers file:\n\
