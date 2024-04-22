@@ -46,8 +46,8 @@ The files that Sira uses for signing and verifying manifests, tasks, and actions
 | :---------------------------------- | :----------------------------- | :------ | :----------------- | :---------- |
 | /etc/sira/                          | Sira configuration directory   | Both    | root:\<sira-user\> | 0750        |
 | /etc/sira/allowed\_signers/         | Allowed signers directory      | Both    | root:\<sira-user\> | 0750        |
-| /etc/sira/allowed\_signers/action   | Authorizes action public key   | Managed | root:\<sira-user\> | 0440        |
-| /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:\<sira-user\> | 0440        |
+| /etc/sira/allowed\_signers/action   | Authorizes action public key   | Managed | root:\<sira-user\> | 0640        |
+| /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:\<sira-user\> | 0640        |
 | /etc/sira/keys/                     | Sira SSH key directory         | Control | root:\<sira-user\> | 0750        |
 | /etc/sira/keys/action               | Action private key             | Control | root:\<sira-user\> | 0640        |
 | /etc/sira/keys/action.pub           | Action public key              | Control | root:\<sira-user\> | 0640        |
