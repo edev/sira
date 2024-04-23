@@ -8,10 +8,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// The subdirectory within Sira's configuration directory that holds SSH keys.
-const KEY_DIR: &str = "keys";
+pub const KEY_DIR: &str = "keys";
 
 /// The subdirectory within Sira's configuration directory that holds SSH allowed signers files.
-const ALLOWED_SIGNERS_DIR: &str = "allowed_signers";
+pub const ALLOWED_SIGNERS_DIR: &str = "allowed_signers";
 
 // TODO Consider replacing key and allowed_signers args to sign and verify with &'static str to
 // guarantee no directory traversal attacks and enable compiler optimizations.
