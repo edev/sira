@@ -306,11 +306,17 @@ fn managed_node(sira_user: &str) {
     }
 
     // Ensure the existence of the /etc/sira directory structure.
+    create_config_dirs();
 
     // If present in the CWD, install the action allowed_signers file. Remember to move the
     // identity from the end to the start. If it already exists, do not replace it.
-
-    // Check for unexpected permissions and warn, in case the user made a mistake.
+    {
+        let cwd = ".";
+        let key = ACTION_KEY;
+        if key_exists(cwd, public_key(key)) {
+            install_allowed_signers_file(cwd, key);
+        }
+    }
 }
 
 fn control_node(sira_user: &str, destination: &str) {
@@ -393,14 +399,7 @@ fn control_node(sira_user: &str, destination: &str) {
         file_transfers.push(ssh_dir.join(public_key(LOGIN_KEY)));
     }
 
-    // Create the Sira config directory structure if it doesn't exist.
-    //
-    // We check for each directory separately because we are trying to be minimally invasive over
-    // the administrator's owner, group, and permissions settings. For instance, if the config dir
-    // exists but the key dir doesn't, we don't want to touch the config dir's owner, group, or mode.
-    create_config_dir(config::config_dir());
-    create_config_dir(allowed_signers_dir());
-    create_config_dir(key_dir());
+    create_config_dirs();
 
     // Check for the manifest public key, and prompt to generate a key pair if it's absent.
     //
@@ -621,6 +620,16 @@ fn create_config_dir(dir: impl AsRef<Path>) {
     )
     .expect("could not chmod config directory");
     println!();
+}
+
+/// Create the Sira config directory structure if it doesn't exist.
+fn create_config_dirs() {
+    // We check for each directory separately because we are trying to be minimally invasive over
+    // the administrator's owner, group, and permissions settings. For instance, if the config dir
+    // exists but the key dir doesn't, we don't want to touch the config dir's owner, group, or mode.
+    create_config_dir(config::config_dir());
+    create_config_dir(allowed_signers_dir());
+    create_config_dir(key_dir());
 }
 
 /// Reads a public key and installs it as an allowed signers file.
