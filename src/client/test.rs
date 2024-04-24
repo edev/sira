@@ -78,3 +78,23 @@ mod run {
         }
     }
 }
+
+mod whoami {
+    use super::*;
+
+    #[test]
+    fn users_contains_whoami() {
+        let users = {
+            let output = Command::new("users").output().unwrap();
+            assert!(output.status.success());
+            assert!(output.stderr.is_empty());
+            String::from_utf8(output.stdout).unwrap()
+        };
+        assert!(users.contains(whoami()));
+    }
+
+    #[test]
+    fn trimmed() {
+        assert_eq!(whoami(), whoami().trim());
+    }
+}

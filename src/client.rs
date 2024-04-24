@@ -8,7 +8,8 @@ use shlex::Quoter;
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
 use std::os::unix::ffi::OsStringExt;
-use std::process::Command;
+use std::process::{Command, Output};
+use std::sync::OnceLock;
 
 /// Invokes the `mktemp` system utility.
 ///
@@ -127,6 +128,27 @@ pub fn run<C: AsRef<OsStr>, A: AsRef<OsStr>>(cmd: C, args: &[A]) -> anyhow::Resu
         bail!("command exited with {error}: {}", command());
     }
     Ok(())
+}
+
+pub fn whoami() -> &'static str {
+    static COMPUTED: OnceLock<String> = OnceLock::new();
+
+    COMPUTED
+        .get_or_init(|| {
+            match Command::new("whoami")
+                .output()
+                .expect("error calling `whoami`")
+            {
+                Output { status, stdout, .. } if status.success() => String::from_utf8(stdout)
+                    .expect("user names should be UTF-8")
+                    .trim()
+                    .to_string(),
+                Output { stderr, .. } => {
+                    panic!("error calling `whoami`: {:?}", OsString::from_vec(stderr))
+                }
+            }
+        })
+        .as_ref()
 }
 
 #[cfg(test)]
