@@ -115,8 +115,8 @@ const ACTION_KEY: &str = "action";
 // administrator to generate these keys during a previous program run and they have declined.
 //
 // Thus, if the keys are missing but the flag files are present, we will simply skip the keys.
-const MANIFEST_FLAG_FILE: &str = ".sira-install-skip-manifest-key";
-const ACTION_FLAG_FILE: &str = ".sira-install-skip-action-key";
+const MANIFEST_FLAG: &str = ".sira-install-skip-manifest-key";
+const ACTION_FLAG: &str = ".sira-install-skip-action-key";
 
 // TODO Strongly consider moving this to crypto.rs and deploying globally. Same with key_dir().
 fn allowed_signers_dir() -> &'static Path {
@@ -342,7 +342,7 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
                 );
             }
             let key_created =
-                prompt_to_generate_signing_key_pair(&ssh_dir, MANIFEST_KEY, MANIFEST_FLAG_FILE);
+                prompt_to_generate_signing_key_pair(&ssh_dir, MANIFEST_KEY, MANIFEST_FLAG);
             if key_created {
                 public_state = PublicKeyState::PublicKeyFile;
             }
@@ -416,7 +416,7 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
             // deployment to managed nodes. If the user declines, then set a flag file to remember
             // the user's choice.
             let key_created =
-                prompt_to_generate_signing_key_pair(&ssh_dir, ACTION_KEY, ACTION_FLAG_FILE);
+                prompt_to_generate_signing_key_pair(&ssh_dir, ACTION_KEY, ACTION_FLAG);
             if key_created {
                 install_signing_key_pair(&ssh_dir, ACTION_KEY);
             }
