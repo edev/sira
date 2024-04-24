@@ -154,14 +154,15 @@ enum PublicKeyState {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() == 3 && args[1] == "--managed-node" {
-        managed_node(&args[2]);
-    } else if args.len() >= 3 {
-        let sira_user = &args[0];
-        let ssh_options = &args[2..args.len() - 1];
-        let destination = &args[args.len() - 1];
-        control_node(sira_user, ssh_options, destination);
-    } // TODO Write a default help message.
+    if args.len() == 3 {
+        if args[1] == "--managed-node" {
+            managed_node(&args[2]);
+        } else {
+            control_node(&args[1], &args[2]);
+        }
+    } else {
+        // TODO Write a default help message.
+    }
 }
 
 fn managed_node(sira_user: &str) {
@@ -193,20 +194,20 @@ fn managed_node(sira_user: &str) {
     // identity from the end to the start. If it already exists, do not replace it.
 
     // Check for unexpected permissions and warn, in case the user made a mistake.
+    panic!("NYI: configure managed node");
 }
 
-fn control_node(sira_user: &str, ssh_options: &[String], destination: &str) {
+fn control_node(sira_user: &str, destination: &str) {
     // Extract and verify required command-line arguments.
     //
     // Tentative signature:
     //
-    // sira-install <sira-user> [ssh-options...] [<admin-user>@]<managed-node>
+    // sira-install <sira-user> [<admin-user>@]<managed-node>
     //
-    // where ssh-options are directly passed along to scp and ssh.
-    //
-    // Note that there is a clear injection opportunity here with untrusted inputs. There is no
-    // good way to prevent ssh from interpreting malicious options as commands to run on the target
-    // system, AFAIK.
+    // If you need to provide options to the SSH connection, you must do so through other means,
+    // such as ~/.ssh/config, because we use both scp and ssh, and they specify options
+    // differently. For example, port number is -P on scp and -p on ssh, and scp exits with an
+    // error if passed -p.
 
     // Prompt user for consent, and then generate SSH key pairs, if the files don't already exist:
     //  - sira (for login)
@@ -403,16 +404,20 @@ fn control_node(sira_user: &str, ssh_options: &[String], destination: &str) {
         }
     }
 
-    // Transfer files to managed node via SCP:
-    //  - sira-install (required)
-    //  - sira-client  (required)
-    //  - sira.pub     (optional)
-    //  - action.pub   (optional)
     {
-        // scp <ssh_args> <file_transfers> <destination>
+        // Transfer files to managed node via SCP:
+        //  - sira-install (required)
+        //  - sira-client  (required)
+        //  - sira.pub     (optional)
+        //  - action.pub   (optional)
+        //
+        // Invocation;
+        // scp <file_transfers> <destination>
         println!("Transferring files to {destination}");
-        let mut args: Vec<&OsStr> = ssh_options.iter().map(OsStr::new).collect();
-        args.extend(file_transfers.iter().map(|s| -> &OsStr { s.as_ref() }));
+        let mut args: Vec<&OsStr> = file_transfers
+            .iter()
+            .map(|s| -> &OsStr { s.as_ref() })
+            .collect();
         let destination = format!("{destination}:");
         args.push(destination.as_ref());
         client::run("scp", &args).expect("error transferring files");
@@ -420,11 +425,24 @@ fn control_node(sira_user: &str, ssh_options: &[String], destination: &str) {
 
     // SSH over to the managed node using the user@host from the command-line arguments. Run:
     //
-    // ssh -t [<user>@]<host> sudo ./sira-install -
+    // ssh -t [<user>@]<host> sudo ./sira-install --managed-node <sira-user>
     //
     // Be sure to use std::process::Command::new("ssh") rather than the openssh crate, because we
     // specifically WANT stdio to be piped to enable password-protected sudo in this case. The `-t`
     // argument makes it interactive, so sudo can prompt for a password.
+    {
+        println!("Running {INSTALLER_BIN} via sudo on {destination}");
+        let command = format!("./{INSTALLER_BIN}");
+        let args = [
+            "-t",
+            &destination,
+            "sudo",
+            &command,
+            "--managed-node",
+            &sira_user,
+        ];
+        client::run("ssh", &args).expect("error running installer on managed node");
+    }
 }
 
 /// Checks whether a public key is present either in the public key directory or as an allowed
