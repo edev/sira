@@ -121,7 +121,7 @@ const ACTION_KEY_PUBLIC_FILE: &str = "action.pub";
 const MANIFEST_FLAG_FILE: &str = ".sira-install-skip-manifest-key";
 const ACTION_FLAG_FILE: &str = ".sira-install-skip-action-key";
 
-// TODO Consider moving this to crypto.rs. Same with KEY_DIR.
+// TODO Strongly consider moving this to crypto.rs and deploying globally. Same with key_dir().
 fn allowed_signers_dir() -> &'static Path {
     static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
 
@@ -129,6 +129,18 @@ fn allowed_signers_dir() -> &'static Path {
         .get_or_init(|| {
             let mut dir = config::config_dir();
             dir.push(ALLOWED_SIGNERS_DIR);
+            dir
+        })
+        .as_ref()
+}
+
+fn key_dir() -> &'static Path {
+    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
+
+    COMPUTED
+        .get_or_init(|| {
+            let mut dir = config::config_dir();
+            dir.push(KEY_DIR);
             dir
         })
         .as_ref()
@@ -241,11 +253,10 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
             panic!(
                 // Wrapped to 80 characters.
                 "found one half of a required key pair in ~/.ssh:\n\
-                \t{} (present: {})\n\
-                \t{} (present: {})\n\
+                {} (present: {})\n\
+                {} (present: {})\n\
                 \n\
-                Please either install the missing file or remove the existing file to generate\n\
-                a new pair",
+                Please either install the missing file or remove the existing file.",
                 LOGIN_KEY_PRIVATE_FILE, private_exists, LOGIN_KEY_PUBLIC_FILE, public_exists,
             );
         } else if !private_exists && !public_exists {
@@ -268,7 +279,7 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
     if !path_exists(allowed_signers_dir(), "allowed signers directory") {
         println!(
             "Creating the allowed signers directory: {}\n\
-            You might be prompted for your password.\n",
+            You might be prompted for your password.",
             allowed_signers_dir().display(),
         );
         client::run(
@@ -280,17 +291,22 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
             ],
         )
         .expect("could not create the allowed signers directory");
+        println!();
     }
 
     // Create the Sira key directory if it doesn't exist.
-    if !path_exists(KEY_DIR, "key directory") {
+    if !path_exists(key_dir(), "key directory") {
         println!(
             "Creating the key directory: {}\n\
-            You might be prompted for your password.\n",
-            KEY_DIR,
+            You might be prompted for your password.",
+            key_dir().display(),
         );
-        client::run("sudo", &["mkdir", "-p", KEY_DIR])
-            .expect("could not create the allowed signers directory");
+        client::run(
+            "sudo",
+            &[OsStr::new("mkdir"), OsStr::new("-p"), key_dir().as_ref()],
+        )
+        .expect("could not create the allowed signers directory");
+        println!();
     }
 
     // Check for the manifest public key, and prompt to generate a key pair if it's absent.
@@ -309,10 +325,10 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
     // If the public key is present as a key file and there is no allowed signers file, then write
     // the allowed signers file.
     {
-        let private_key_exists = key_exists(&ssh_dir, MANIFEST_KEY_PRIVATE_FILE);
-        let mut public_key_state = check_public_key(&ssh_dir, MANIFEST_KEY_PRIVATE_FILE);
-        if public_key_state == PublicKeyState::NotPresent {
-            if private_key_exists {
+        let private_exists = key_exists(&ssh_dir, MANIFEST_KEY_PRIVATE_FILE);
+        let mut public_state = check_public_key(&ssh_dir, MANIFEST_KEY_PRIVATE_FILE);
+        if public_state == PublicKeyState::NotPresent {
+            if private_exists {
                 panic!(
                     // Wrapped to 80 characters.
                     "found the manifest private key in {key_dir}, but could not find the public\n\
@@ -331,13 +347,90 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
                 MANIFEST_FLAG_FILE,
             );
             if key_created {
-                public_key_state = PublicKeyState::PublicKeyFile;
+                public_state = PublicKeyState::PublicKeyFile;
             }
         }
 
-        if public_key_state == PublicKeyState::PublicKeyFile {
+        if public_state == PublicKeyState::PublicKeyFile {
             install_allowed_signers_file(&ssh_dir, MANIFEST_KEY_PRIVATE_FILE);
         }
+    }
+
+    // Install action key (both public and private portions), if present. Prompt to generate a new
+    // key pair if no existing key pair is found.
+    //
+    // We need the private key in order to sign actions on the control node (the current system).
+    // OpenSSH requires the public key to be present in the same directory when asked to sign
+    // files, so we need it as well. Plus, we need to deploy the public key to managed nodes in the
+    // code below. Therefore, if we find one key but not the other, that's an error, and there is
+    // no sensible way to proceed.
+    //
+    // The logic above applies to key pairs in Sira's key directory and key pairs in ~/.ssh. For
+    // sanity and simplicity, the code below DOES NOT allow mixing and matching between these two
+    // directories.
+    {
+        // Check for keys in Sira's key dir.
+        let private_installed = key_exists(&key_dir(), ACTION_KEY_PRIVATE_FILE);
+        let public_installed = key_exists(&key_dir(), ACTION_KEY_PUBLIC_FILE);
+        if private_installed ^ public_installed {
+            panic!(
+                // Wrapped to 80 characters.
+                "found one half of a key pair in {}:\n\
+                {} (present: {})\n\
+                {} (present: {})\n\
+                \n\
+                Please either install the missing file or remove the existing file.",
+                key_dir().display(),
+                ACTION_KEY_PRIVATE_FILE,
+                private_installed,
+                ACTION_KEY_PUBLIC_FILE,
+                public_installed,
+            );
+        }
+
+        // Check for keys in ~/.ssh.
+        let private_exists = key_exists(&ssh_dir, ACTION_KEY_PRIVATE_FILE);
+        let public_exists = key_exists(&ssh_dir, ACTION_KEY_PUBLIC_FILE);
+        if private_exists ^ public_exists {
+            panic!(
+                // Wrapped to 80 characters.
+                "found one half of a key pair in ~/.ssh:\n\
+                {} (present: {})\n\
+                {} (present: {})\n\
+                \n\
+                Please either install the missing file or remove the existing file.",
+                ACTION_KEY_PRIVATE_FILE, private_exists, ACTION_KEY_PUBLIC_FILE, public_exists,
+            );
+        }
+
+        let installed = if private_installed && public_installed {
+            // The action key is already installed on the control node. Select it for deployment to
+            // managed nodes.
+            true
+        } else if private_exists && public_exists {
+            // The action key is not installed but is present in ~/.ssh. Install it, and select it
+            // for deployment to managed nodes.
+            true
+        } else {
+            // Prompt to generate. If the user consents, then install it and select it for
+            // deployment to managed nodes. If the user declines, then set a flag file to remember
+            // the user's choice.
+            let key_created = prompt_to_generate_signing_key_pair(
+                &ssh_dir,
+                ACTION_KEY_PRIVATE_FILE,
+                ACTION_FLAG_FILE,
+            );
+            if key_created {
+                install_signing_key_pair(&ssh_dir, ACTION_KEY_PRIVATE_FILE);
+            }
+            key_created
+        };
+        if installed {
+            file_transfers.push(key_dir().join(ACTION_KEY_PUBLIC_FILE));
+        }
+
+        // TODO In all cases where we install files to /etc/sira, deal with owner, group, and
+        // permissions on files. They WILL NOT perfectly match when newly created and MUST be set.
     }
 
     // Transfer files to managed node via SCP:
@@ -468,7 +561,41 @@ fn install_allowed_signers_file(
         ],
     )
     .expect("error copying allowed signers file to Sira config directory");
-    println!("Allowed signers file installed.");
+    println!("Allowed signers file installed.\n");
+}
+
+fn install_signing_key_pair(
+    starting_directory: impl AsRef<Path>,
+    relative_path_to_key: impl AsRef<Path>,
+) {
+    let private_key_file = starting_directory
+        .as_ref()
+        .join(relative_path_to_key.as_ref());
+    let public_key_file = starting_directory
+        .as_ref()
+        .join(public_key(&relative_path_to_key));
+    println!(
+        "Installing {} key files to {}:\n\
+        {}\n\
+        {}\n\
+        \n\
+        You might be prompted for your password.\n",
+        relative_path_to_key.as_ref().display(),
+        starting_directory.as_ref().display(),
+        private_key_file.display(),
+        public_key_file.display(),
+    );
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("cp"),
+            private_key_file.as_ref(),
+            public_key_file.as_ref(),
+            key_dir().as_ref(),
+        ],
+    )
+    .expect("error copying key files to Sira config directory");
+    println!("Signing key installed.");
 }
 
 /// Checks whether a key exists, panicking if we can't determine an answer.
@@ -541,19 +668,21 @@ fn prompt_to_generate_signing_key_pair(
             manifest and task files, or Sira will refuse to run them.\n\
             \n\
             The manifest key signs manifest and action files, allowing the control node\n\
-            to reject unauthorized instructions.\n\
+            to reject unauthorized instructions. (Present: {manifest})\n\
             \n\
             The action key signs actions sent from the control node to sira-client,\n\
-            allowing managed nodes to reject unauthorized instructions.\n\
+            allowing managed nodes to reject unauthorized instructions. (Present: {action})\n\
             \n\
             Both keys are independent: you may freely set neither, either, or both.\n\
             \n\
-            Protecting these keys with strong and unique passwords is highly recommended.\n"
+            Protecting these keys with strong and unique passwords is highly recommended.\n",
+            manifest = key_exists(allowed_signers_dir(), MANIFEST_KEY_PRIVATE_FILE),
+            action = key_exists(key_dir(), ACTION_KEY_PRIVATE_FILE),
         );
     }
 
     print!(
-        "Do you wish to generate and deploy a {} key? [Y/n]: ",
+        "Do you wish to generate and deploy the {} key? [Y/n]: ",
         relative_path_to_key.as_ref().display(),
     );
     io::stdout().flush().expect("could not flush stdout");
