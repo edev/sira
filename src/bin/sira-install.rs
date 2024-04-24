@@ -83,6 +83,7 @@
 
 use sira::client;
 use sira::config;
+use sira::core::action::{self, Action};
 use sira::crypto::{ALLOWED_SIGNERS_DIR, KEY_DIR};
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -96,6 +97,9 @@ use std::sync::OnceLock;
 // FIle names of the installer and sira-client binaries.
 const INSTALLER_BIN: &str = "sira-install";
 const CLIENT_BIN: &str = "sira-client";
+
+// The installation directory for sira-client.
+const CLIENT_INSTALL_DIR: &str = "/opt/sira/bin";
 
 // The path of the file where SSH keys are stored on both control and managed nodes. This path is
 // relative to the user's home.
@@ -207,6 +211,7 @@ fn managed_node(sira_user: &str) {
             let mode = "0755";
             client::run("chmod", &[OsStr::new(mode), sira_ssh_dir.as_ref()])
                 .expect("error chmodding directory");
+            println!();
         }
 
         // For security, deliberately wipe out any existing contents of AUTHORIZED_KEYS.
@@ -224,15 +229,81 @@ fn managed_node(sira_user: &str) {
         let mode = "0644";
         client::run("chmod", &[OsStr::new(mode), authorized_keys.as_ref()])
             .expect("error chmodding ~/.ssh/authorized_keys");
+        println!();
     }
 
     // Ensure existence of /opt/sira/bin. Don't mangle the administrator's owner, group, or
     // permissions: by default, this operation should require root, but if the
     // administrator is doing something different, we'll trust them to know what they're doing.
+    if !path_exists(CLIENT_INSTALL_DIR, "client install directory") {
+        println!("Creating {CLIENT_INSTALL_DIR}");
+        client::run("mkdir", &["-p", CLIENT_INSTALL_DIR]).expect("error creating directory");
+        println!();
+    }
 
     // Move sira-client to /opt/sira/bin/sira-client. Ensure correct user, group, & permissions.
+    {
+        println!("Installing {CLIENT_BIN} to {CLIENT_INSTALL_DIR}");
+        client::run("mv", &[CLIENT_BIN, CLIENT_INSTALL_DIR]).expect("error moving client binary");
+
+        println!("Setting owner.");
+        let client_path = Path::new(CLIENT_INSTALL_DIR).join(CLIENT_BIN);
+        let owner = "root:root";
+        client::run("chown", &[OsStr::new(owner), client_path.as_ref()])
+            .expect("error chowning client binary");
+
+        println!("Setting mode.");
+        let mode = "0700";
+        client::run("chmod", &[OsStr::new(mode), client_path.as_ref()])
+            .expect("error chmodding client binary");
+        println!();
+    }
 
     // Install the Sira user in sudoers, idempotently.
+    //
+    // If /etc/sudoers.d exists, use it. Otherwise, modify /etc/sudoers.
+    {
+        // Components of the eventual Action::LineInFile; we will shadow these if needed.
+        let path = "/etc/sudoers";
+        let line = format!("{sira_user}\tALL=(root:root) NOPASSWD:/opt/sira/bin/sira-client");
+        let pattern = None;
+        let after = None;
+        let indent = false;
+
+        println!("Installing {sira_user} as a sudoer.");
+        if path_exists("/etc/sudoers.d", "/etc/sudoers.d directory") {
+            let path = "/etc/sudoers.d/10_sira";
+
+            if !path_exists(path, "Sira sudoers file") {
+                println!("Creating file: {path}");
+                let _ = File::create(path).expect("could not create sudoers file");
+
+                println!("Setting mode.");
+                client::run("chmod", &["0640", path]).expect("error chmodding sudoers file");
+            }
+
+            println!("Updating {path} with entry for {sira_user}");
+            action::line_in_file(&Action::LineInFile {
+                path: path.to_string(),
+                line,
+                pattern,
+                after,
+                indent,
+            })
+            .expect("error updating sudoers file");
+        } else {
+            println!("Updating {path} with entry for {sira_user}");
+            action::line_in_file(&Action::LineInFile {
+                path: path.to_string(),
+                line,
+                pattern,
+                after,
+                indent,
+            })
+            .expect("error updating sudoers file");
+        }
+        println!();
+    }
 
     // Ensure the existence of the /etc/sira directory structure.
 
@@ -240,7 +311,6 @@ fn managed_node(sira_user: &str) {
     // identity from the end to the start. If it already exists, do not replace it.
 
     // Check for unexpected permissions and warn, in case the user made a mistake.
-    panic!("NYI: configure managed node");
 }
 
 fn control_node(sira_user: &str, destination: &str) {
@@ -467,6 +537,7 @@ fn control_node(sira_user: &str, destination: &str) {
         let destination = format!("{destination}:");
         args.push(destination.as_ref());
         client::run("scp", &args).expect("error transferring files");
+        println!();
     }
 
     // SSH over to the managed node using the user@host from the command-line arguments. Run:
