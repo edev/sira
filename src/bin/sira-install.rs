@@ -275,39 +275,14 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
         file_transfers.push(ssh_dir.join(public_key(LOGIN_KEY)));
     }
 
-    // Create the Sira allowed signers directory if it doesn't exist.
-    if !path_exists(allowed_signers_dir(), "allowed signers directory") {
-        println!(
-            "Creating the allowed signers directory: {}\n\
-            You might be prompted for your password.",
-            allowed_signers_dir().display(),
-        );
-        client::run(
-            "sudo",
-            &[
-                OsStr::new("mkdir"),
-                OsStr::new("-p"),
-                allowed_signers_dir().as_ref(),
-            ],
-        )
-        .expect("could not create the allowed signers directory");
-        println!();
-    }
-
-    // Create the Sira key directory if it doesn't exist.
-    if !path_exists(key_dir(), "key directory") {
-        println!(
-            "Creating the key directory: {}\n\
-            You might be prompted for your password.",
-            key_dir().display(),
-        );
-        client::run(
-            "sudo",
-            &[OsStr::new("mkdir"), OsStr::new("-p"), key_dir().as_ref()],
-        )
-        .expect("could not create the allowed signers directory");
-        println!();
-    }
+    // Create the Sira config directory structure if it doesn't exist.
+    //
+    // We check for each directory separately because we are trying to be minimally invasive over
+    // the administrator's owner, group, and permissions settings. For instance, if the config dir
+    // exists but the key dir doesn't, we don't want to touch the config dir's owner, group, or mode.
+    create_config_dir(config::config_dir());
+    create_config_dir(allowed_signers_dir());
+    create_config_dir(key_dir());
 
     // Check for the manifest public key, and prompt to generate a key pair if it's absent.
     //
@@ -425,9 +400,6 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
         if installed {
             file_transfers.push(key_dir().join(public_key(ACTION_KEY)));
         }
-
-        // TODO In all cases where we install files to /etc/sira, deal with owner, group, and
-        // permissions on files. They WILL NOT perfectly match when newly created and MUST be set.
     }
 
     // Transfer files to managed node via SCP:
@@ -465,6 +437,45 @@ fn check_public_key(
     }
 
     PublicKeyState::NotPresent
+}
+
+fn create_config_dir(dir: impl AsRef<Path>) {
+    if path_exists(dir.as_ref(), "config directory") {
+        return;
+    }
+
+    println!(
+        "Creating Sira config directory: {}\n\
+        You might be prompted for your password one or more times.",
+        dir.as_ref().display(),
+    );
+    client::run("sudo", &[OsStr::new("mkdir"), dir.as_ref().as_ref()])
+        .expect("could not create config directory");
+
+    let owner = format!("root:{}", client::whoami());
+    println!("Setting owner to {owner}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chown"),
+            OsStr::new(&owner),
+            dir.as_ref().as_ref(),
+        ],
+    )
+    .expect("could not chown config directory");
+
+    let mode = "0755";
+    println!("Setting mode to {mode}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chmod"),
+            OsStr::new(&mode),
+            dir.as_ref().as_ref(),
+        ],
+    )
+    .expect("could not chmod config directory");
+    println!();
 }
 
 /// Reads a public key and installs it as an allowed signers file.
@@ -527,16 +538,9 @@ fn install_allowed_signers_file(dir: impl AsRef<Path>, key_name: impl AsRef<Path
     file.flush().expect("error flushing temporary file");
     drop(file);
 
-    // For sanity before copying to the final destination, set permissions. However, these should
-    // probably already have been the defaults. If not, then the user might have done something
-    // unsafe with their system, and that's beyond our purview. (Therefore, we don't protect
-    // against it by closing the file, calling chmod, and opening with write+truncate.)
-    client::run("chmod", &["0644", &temp_file_path])
-        .expect("error running chmod on temporary file");
-
     println!(
         "Installing allowed signers file: {}\n\
-        You might be prompted for your password.\n",
+        You might be prompted for your password one or more times.",
         allowed_signers_file.display(),
     );
     client::run(
@@ -548,6 +552,31 @@ fn install_allowed_signers_file(dir: impl AsRef<Path>, key_name: impl AsRef<Path
         ],
     )
     .expect("error copying allowed signers file to Sira config directory");
+
+    let owner = format!("root:{}", client::whoami());
+    println!("Setting owner to {owner}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chown"),
+            OsStr::new(&owner),
+            allowed_signers_file.as_ref(),
+        ],
+    )
+    .expect("could not chown allowed signers file");
+
+    // This probably isn't necessary, but for sanity, we'll set the new file's mode.
+    let mode = "0644";
+    println!("Setting mode to {mode}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chmod"),
+            OsStr::new(&mode),
+            allowed_signers_file.as_ref(),
+        ],
+    )
+    .expect("could not chmod allowed signers file");
     println!("Allowed signers file installed.\n");
 }
 
@@ -558,8 +587,7 @@ fn install_signing_key_pair(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) {
         "Installing {} key files to {}:\n\
         {}\n\
         {}\n\
-        \n\
-        You might be prompted for your password.\n",
+        You might be prompted for your password one or more times.",
         key_name.as_ref().display(),
         key_dir().display(),
         private_key_file.display(),
@@ -575,6 +603,46 @@ fn install_signing_key_pair(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) {
         ],
     )
     .expect("error copying key files to Sira config directory");
+
+    let installed_private_key = key_dir().join(key_name.as_ref());
+    let installed_public_key = key_dir().join(public_key(key_name.as_ref()));
+
+    let owner = format!("root:{}", client::whoami());
+    println!("Setting owner to {owner}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chown"),
+            OsStr::new(&owner),
+            installed_private_key.as_ref(),
+            installed_public_key.as_ref(),
+        ],
+    )
+    .expect("could not chown key files");
+
+    let mode = "0640";
+    println!("Setting private key's mode to {mode}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chmod"),
+            OsStr::new(&mode),
+            installed_private_key.as_ref(),
+        ],
+    )
+    .expect("could not chmod private key file");
+
+    let mode = "0644";
+    println!("Setting public key's mode to {mode}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chmod"),
+            OsStr::new(&mode),
+            installed_public_key.as_ref(),
+        ],
+    )
+    .expect("could not chmod public key file");
     println!("Signing key installed.");
 }
 
