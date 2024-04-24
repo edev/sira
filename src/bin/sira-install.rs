@@ -518,12 +518,7 @@ fn install_allowed_signers_file(dir: impl AsRef<Path>, key_name: impl AsRef<Path
     debug_assert_eq!(key.len(), allowed_signers.len());
     debug_assert!(allowed_signers.starts_with("sira "));
 
-    let allowed_signers_file = {
-        let mut path = config::config_dir();
-        path.push(allowed_signers_dir());
-        path.push(key_name);
-        path
-    };
+    let allowed_signers_file = allowed_signers_dir().join(key_name);
 
     // Write the allowed signers file to a temp file.
     let (mut file, temp_file_path) = client::mktemp().expect("could not open temporary file");
