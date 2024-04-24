@@ -179,6 +179,52 @@ fn managed_node(sira_user: &str) {
     // Copy sira.pub to the Sira user's ~/.ssh/authorized_keys, ensuring correct permissions.
     // Feel free to assume it's at /home/<sira-user>. If someone wants to deploy this in a funky
     // setup, they can write their own installer or modify this one; this is all well-documented.
+    {
+        let sira_home_dir = Path::new("/home").join(sira_user);
+        let sira_ssh_dir = sira_home_dir.join(".ssh");
+
+        // Create the Sira user's ~/.ssh if it doesn't exist. If the Sira user doesn't exist,
+        // that's outside our purview and will result in errors from the processes we call. We'll
+        // try to detect it gracefully by checking for the Sira user's home directory, though.
+        if !path_exists(&sira_ssh_dir, "the Sira user's SSH directory") {
+            if !path_exists(&sira_home_dir, "the Sira user's home directory") {
+                panic!(
+                    "Could not find the Sira user's home directory: {}\n\
+                    Have you created the Sira user on this machine?",
+                    sira_home_dir.display(),
+                );
+            }
+
+            println!("Creating the Sira user's ~/.ssh directory.");
+            client::run("mkdir", &[&sira_ssh_dir]).expect("error creating directory");
+
+            println!("Setting owner.");
+            let owner = format!("{sira_user}:{sira_user}");
+            client::run("chown", &[OsStr::new(&owner), sira_ssh_dir.as_ref()])
+                .expect("error chowning directory");
+
+            println!("Setting mode.");
+            let mode = "0755";
+            client::run("chmod", &[OsStr::new(mode), sira_ssh_dir.as_ref()])
+                .expect("error chmodding directory");
+        }
+
+        // For security, deliberately wipe out any existing contents of AUTHORIZED_KEYS.
+        println!("Installing Sira user's public key as ~/.ssh/authorized_keys");
+        let authorized_keys = sira_ssh_dir.join("authorized_keys");
+        client::run("mv", &[&public_key(LOGIN_KEY), &authorized_keys])
+            .expect("error moving key to ~/.ssh/authorized_keys");
+
+        println!("Setting owner.");
+        let owner = format!("{sira_user}:{sira_user}");
+        client::run("chown", &[OsStr::new(&owner), authorized_keys.as_ref()])
+            .expect("error chowning ~/.ssh/authorized_keys");
+
+        println!("Setting mode.");
+        let mode = "0644";
+        client::run("chmod", &[OsStr::new(mode), authorized_keys.as_ref()])
+            .expect("error chmodding ~/.ssh/authorized_keys");
+    }
 
     // Ensure existence of /opt/sira/bin. Don't mangle the administrator's owner, group, or
     // permissions: by default, this operation should require root, but if the
@@ -344,8 +390,8 @@ fn control_node(sira_user: &str, destination: &str) {
     // directories.
     {
         // Check for keys in Sira's key dir.
-        let private_installed = key_exists(&key_dir(), ACTION_KEY);
-        let public_installed = key_exists(&key_dir(), public_key(ACTION_KEY));
+        let private_installed = key_exists(key_dir(), ACTION_KEY);
+        let public_installed = key_exists(key_dir(), public_key(ACTION_KEY));
         if private_installed ^ public_installed {
             panic!(
                 // Wrapped to 80 characters.
@@ -408,7 +454,7 @@ fn control_node(sira_user: &str, destination: &str) {
         // Transfer files to managed node via SCP:
         //  - sira-install (required)
         //  - sira-client  (required)
-        //  - sira.pub     (optional)
+        //  - sira.pub     (required)
         //  - action.pub   (optional)
         //
         // Invocation;
