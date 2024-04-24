@@ -157,7 +157,10 @@ fn main() {
     if args.len() == 3 && args[1] == "--managed-node" {
         managed_node(&args[2]);
     } else if args.len() >= 3 {
-        control_node(&args[1], &args[2], &args[3..]);
+        let sira_user = &args[0];
+        let ssh_options = &args[2..args.len() - 1];
+        let destination = &args[args.len() - 1];
+        control_node(sira_user, ssh_options, destination);
     } // TODO Write a default help message.
 }
 
@@ -192,14 +195,12 @@ fn managed_node(sira_user: &str) {
     // Check for unexpected permissions and warn, in case the user made a mistake.
 }
 
-fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
-    // TODO Be sure to try user@host and host forms to make sure they worK.
-
+fn control_node(sira_user: &str, ssh_options: &[String], destination: &str) {
     // Extract and verify required command-line arguments.
     //
     // Tentative signature:
     //
-    // sira-install <sira-user> [<admin-user>@]<managed-node> [ssh-options...]
+    // sira-install <sira-user> [ssh-options...] [<admin-user>@]<managed-node>
     //
     // where ssh-options are directly passed along to scp and ssh.
     //
@@ -407,6 +408,15 @@ fn control_node(sira_user: &str, destination: &str, ssh_options: &[String]) {
     //  - sira-client  (required)
     //  - sira.pub     (optional)
     //  - action.pub   (optional)
+    {
+        // scp <ssh_args> <file_transfers> <destination>
+        println!("Transferring files to {destination}");
+        let mut args: Vec<&OsStr> = ssh_options.iter().map(OsStr::new).collect();
+        args.extend(file_transfers.iter().map(|s| -> &OsStr { s.as_ref() }));
+        let destination = format!("{destination}:");
+        args.push(destination.as_ref());
+        client::run("scp", &args).expect("error transferring files");
+    }
 
     // SSH over to the managed node using the user@host from the command-line arguments. Run:
     //
