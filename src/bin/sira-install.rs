@@ -7,6 +7,8 @@
 //!
 //! TODO Remove the "text" in "```text" after converting to this to standalone GFM.
 //!
+//! TODO Check for files left behind by installer and clean them up. Flags don't count.
+//!
 //! # Installation Guide
 //!
 //! Below are step-by-step instructions for installing Sira across both your control node and your
@@ -180,9 +182,12 @@ fn managed_node(sira_user: &str) {
     // use only. To enlist localhost as a managed node, run sira-install normally against
     // localhost; don't try to use this flag.
 
-    // Copy sira.pub to the Sira user's ~/.ssh/authorized_keys, ensuring correct permissions.
+    // Move sira.pub to the Sira user's ~/.ssh/authorized_keys, ensuring correct permissions.
     // Feel free to assume it's at /home/<sira-user>. If someone wants to deploy this in a funky
     // setup, they can write their own installer or modify this one; this is all well-documented.
+    //
+    // If you're reading this because you want to modify the installer, and you think your changes
+    // will be useful to others as well, please feel free to open an issue to discuss them.
     {
         let sira_home_dir = Path::new("/home").join(sira_user);
         let sira_ssh_dir = sira_home_dir.join(".ssh");
@@ -596,13 +601,13 @@ fn create_config_dir(dir: impl AsRef<Path>) {
     client::run("sudo", &[OsStr::new("mkdir"), dir.as_ref().as_ref()])
         .expect("could not create config directory");
 
-    let owner = format!("root:{}", client::whoami());
+    let owner = "root:root";
     println!("Setting owner to {owner}");
     client::run(
         "sudo",
         &[
             OsStr::new("chown"),
-            OsStr::new(&owner),
+            OsStr::new(owner),
             dir.as_ref().as_ref(),
         ],
     )
@@ -707,13 +712,13 @@ fn install_allowed_signers_file(dir: impl AsRef<Path>, key_name: impl AsRef<Path
     )
     .expect("error copying allowed signers file to Sira config directory");
 
-    let owner = format!("root:{}", client::whoami());
+    let owner = "root:root";
     println!("Setting owner to {owner}");
     client::run(
         "sudo",
         &[
             OsStr::new("chown"),
-            OsStr::new(&owner),
+            OsStr::new(owner),
             allowed_signers_file.as_ref(),
         ],
     )
@@ -769,10 +774,21 @@ fn install_signing_key_pair(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) {
             OsStr::new("chown"),
             OsStr::new(&owner),
             installed_private_key.as_ref(),
+        ],
+    )
+    .expect("could not chown private key");
+
+    let owner = "root:root";
+    println!("Setting owner to {owner}");
+    client::run(
+        "sudo",
+        &[
+            OsStr::new("chown"),
+            OsStr::new(owner),
             installed_public_key.as_ref(),
         ],
     )
-    .expect("could not chown key files");
+    .expect("could not chown public key");
 
     let mode = "0640";
     println!("Setting private key's mode to {mode}");
