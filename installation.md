@@ -1,24 +1,25 @@
 # Installing
 
-Below are step-by-step instructions for installing Sira across both your control node and your managed nodes. The guide is long, but using the installer allows you to skip most steps. It should only take a minute or two per node with the installer or around 5-10 minutes per node (depending on your speed with the terminal) for manual installation. Instructions for both are below, including notes on what situations the installer can and cannot accommodate.
+Below are step-by-step instructions for installing Sira across both your control node and your managed nodes. The guide is long, but using the installer allows you to skip most steps. After initial reading, it should only take a minute or two per node with the installer or around 5-10 minutes per node (depending on your speed with the terminal) for manual installation.
 
 First, some important terms:
 - **Control node:** the computer or virtual machine that controls everything. This is where you will run `sira` to manage your systems.
-- **Control user:** the user account on the control node where you will install and run `sira`. If you wish to use the installer, this account must be a sudoer.
+- **Control node user:** the user account on the control node where you will install and run `sira`. If you wish to use the installer, this account must be a sudoer.
 - **Managed node:** a computer or virtual machine that Sira administers, i.e. one you want to be able to list in manifest files.
-- **Sira user:** the account on managed nodes that runs `sira-client`. This account needs passwordless sudo access to `sira-client` and should have no other special access. This account should not be the same as the control user.
+- **Managed node admin:** the account on a managed node that you will use for setting up Sira. If you wish to use the installer, this account must be accessible via SSH and must be a sudoer.
+- **Sira user:** the account on managed nodes that runs `sira-client`. This account needs password-less sudo access to `sira-client` and should have no other special access.
 
-## Iniitial steps
+## Choosing a control node & user
 
-Choose your control node and control user.
-
-If your security threat profile is low, it's probably fine to choose your primary PC as your control node and any trusted, non-root account as the control user, as long as you use password-protected manifest and action keys. (You will set these up below. See [security.md](security.md) for much more information on these keys.)
+If your security threat profile is low, it's probably fine to choose your primary PC as your control node and any trusted, non-root account as the control node user, as long as you use password-protected manifest and action keys. (You will set these up below. See [security.md](security.md) for much more information on these keys.) Of course, choosing a more secure setup, e.g. creating a separate user account for Sira, is always a good idea, if you are willing and able.
 
 If your threat profile is higher, you might want to create a control node virtual machine that you only start when you need it or even use a dedicated, physical machine as the control node. Separating all aspects of your Sira configuration from any anticipated threat vectors will substantially improve your security posture.
 
-**If you want to use the installer, the control user must be a sudoer.**
+**Remember: if you want to use the installer, the control node user must be a sudoer.**
 
-As the control user (on the control node):
+## Initial steps
+
+As the control node user:
 
 1. Install [rustup](https://rustup.rs/).
 1. Rustup will probably handle this, but just in case it doesn't: add `~/.cargo/bin` to your `PATH`, and then restart your terminal.
@@ -31,16 +32,15 @@ $ cargo install sira
 ## Automatic installation (recommended)
 
 For each managed node:
-1. Choose an account on the managed node to use for setting up Sira. This account must be accessible via SSH, and if you wish to use the installer, it must be a sudoer. For the purposes of this guide, we will call this the **administrative user**.
-1. Create the Sira user on the managed node. Since different distributions handle account creation slightly differently, the installer does not automate this, and we do not provide instructions here. This user needs no special permissions or configuration of any kind: the more barebones the account, the better. Do not configure key-based SSH login, as you will do this later.
+1. Create the Sira user on the managed node. Since different distributions handle account creation slightly differently, the installer does not automate this, and we do not provide instructions here. This user needs no special permissions or configuration of any kind: the more bare-bones the account, the better. Do not configure key-based SSH login, as you will do this later.
 
-    The Sira user should be a separate account used only for Sira, for two reasons. First, this is best practice in general. Second, the installer will install a sudoers rule granting this account passwordless sudo access to `sira-client` and nothing else; if you try to use an existing administrative account, the installer will lock this account out of sudo! (You could then hypothetically fix this with Sira, if you were sufficiently determined.)
+    The Sira user should be a separate account used only for Sira, for two reasons. First, this is best practice in general. Second, the installer will install a sudoers rule granting this account password-less sudo access to `sira-client` and nothing else; if you try to use an existing admin account, the installer will lock this account out of sudo! (You could then hypothetically fix this with Sira, if you were sufficiently determined.)
 
-    If you need even tighter security, you are free to use different user names for different managed nodes, as long as you configure them in your control user's `~/.ssh/config` file. This should work fine with the installer. You are also free to use different login SSH keys for each managed user, but the installer does not support this. Sira does not support using different manifest and action keys for each account.
-1. As the control user (on the control node), run:
+    If you need even tighter security, you are free to use different user names for different managed nodes, as long as you configure them in your control node user's `~/.ssh/config` file. This should work fine with the installer. You are also free to use different login SSH keys for each managed node, but the installer does not support this. Sira does not support using different manifest and action keys for each managed node.
+1. As the control node user, run:
 
     ```
-    $ sira-install <sira-user> <administrative-user>@<managed-node>
+    $ sira-install <sira-user> <managed-node-admin>@<managed-node>
     ```
 
     If you need to set other options, such as port number or identity file, you will need to set them through `~/.ssh/config`. Because various OpenSSH utilities use different formats for specifying these options, `sira-install` does not accept options to pass through.
@@ -54,12 +54,12 @@ In summary, to install Sira on a node:
 sudo useradd ...
 
 # On the control node
-sira-install <sira-user> <administrative-user>@<managed-node>
+sira-install <sira-user> <managed-node-admin>@<managed-node>
 ```
 
 ### Final Steps
 
-1. Transfer the manifest private key (e.g. `~/.ssh/manifest`) from the control user (on the control node) to the account where you will develop your manifests and tasks. Remove it from the control user.
+1. Transfer the manifest private key (e.g. `~/.ssh/manifest`) from the control node user to the account where you will develop your manifests and tasks. Remove it from the control node user.
 1. Make note of the following invocation. When you wish to sign your manifest and task files, you will need to run the following (which you might want to put in a simple script on your development machine):
 
    ```
@@ -78,20 +78,20 @@ sira-install <sira-user> <administrative-user>@<managed-node>
 
    ssh-keygen -Y sign -n sira -f ~/.ssh/manifest "$@"
    ```
-1. As the control user (on the control node), configure ~/.ssh/config to meet the following requirements. (How you do this will vary depending on your setup.)
+1. As the control node user, configure ~/.ssh/config to meet the following requirements. (How you do this will vary depending on your setup.)
     1. When connecting to managed nodes as the Sira user, use the login key (e.g. `~/.ssh/sira`).
     1. If possible, when connecting to managed nodes, log in as the Sira user by default. If you don't set this property, you will need to write `<user>@<host>` instead of simply `<host>` in all of your manifest files.
 
-    For example, if your network uses the `home.arpa` domain name and the control user's only job is running Sira, you might write:
+    In the simplest case, if the control node user's only job is running Sira, you might be able to get away with a wildcard:
 
     ```
-    Match host *.home.arpa
+    Match host *
       User sira
       IdentityFile ~/.ssh/sira
     ```
 
-    To test this, try connecting to one or more managed nodes using either `ssh <host>` or `ssh <user>@<host>`, depending on the above. (Remember to use `ssh-add` to add the key to `ssh-agent` first.) You should be able to log in as the Sira user without being prompted for any information.
-1. Verify that everything is working. Write the following files as the control user (on the control node):
+    To test your configuration, try connecting to one or more managed nodes using either `ssh <host>` or `ssh <user>@<host>`, depending on the above. (Remember to use `ssh-add` to add the key to `ssh-agent` first.) You should be able to log in as the Sira user without being prompted for any information.
+1. Verify that everything is working. Write the following files as the control node user:
 
     ```
     # ~/manifest.yaml
@@ -112,7 +112,7 @@ sira-install <sira-user> <administrative-user>@<managed-node>
           - echo "Hello, world!"
     ```
 
-    Then, as your control user, from its home directory, run:
+    Then, as your control node user, from its home directory, run:
 
     ```
     $ sira manifest.yaml
@@ -122,6 +122,7 @@ You're done! Congratulations! If you're looking to further automate and elevate 
 
 ## Manual installation: control node
 
+1. If you haven't already gone through the sections of this document *above* Automatic Installation, please do so now.
 1. Open [security.md](security.md) and scroll down to the table listing files and permissions. (Reading the file is also a good idea, of course.) Use this table as your reference for Sira's configuration files throughout this guide; we will refer to it as "the table."
 1. If you haven't already created `~/.ssh`, create it now.
 1. Generate the SSH key pair that Sira will use to log into managed nodes (as the Sira user). This guide will assume that it the private key is  `~/.ssh/sira` and the public key is `~/.ssh/sira.pub`. Protecting all SSH keys used in this guide with strong and unique passwords is highly recommended but not required.
@@ -131,7 +132,7 @@ You're done! Congratulations! If you're looking to further automate and elevate 
     ```
 
     You are free to customize this key and its comment field any way you wish. Sira does not directly use this key; you will configure OpenSSH to use this key later in the guide.
-1. *(Optional but highly recommended)* Generate SSH keys to crypographically sign your manifest and task files, as well as actions sent from the control node to managed nodes, providing much stronger protection against unauthorized access. For more information, see [security.md](security.md).
+1. *(Optional but highly recommended)* Generate SSH keys to cryptographically sign your manifest and task files, as well as actions sent from the control node to managed nodes, providing much stronger protection against unauthorized access. For more information, see [security.md](security.md).
     1. Generate the keys:
 
         ```
@@ -165,10 +166,11 @@ You're done! Congratulations! If you're looking to further automate and elevate 
 
 ## Manual installation: managed nodes
 
-After configuring the control node, do the following for each managed node:
-1. Complete the steps in the Automatic Installation section, but stop when instructed to run `sira-install`.
-1. Transfer the following files from the control user (on the control node) to the administrative user (on the managed node):
-    - `$(which sira-client)` (most likely `~/.cargo/bin/sira-client`)
+### Preparation
+1. If you haven't already configured the control node as described above, please do so now.
+1. Work through the Automatic Installation section, but stop when instructed to run `sira-install`.
+1. Transfer the following files from the control node user to the managed node admin:
+    - The client binary (e.g. `~/.cargo/bin/sira-client`)
     - The login public key (e.g. `~/.ssh/sira.pub`)
     - The action public key (e.g. `~/.ssh/action.pub`), if you created one
 
@@ -177,48 +179,51 @@ After configuring the control node, do the following for each managed node:
     ```
     $ scp ~/.cargo/bin/sira-client ~/.ssh/sira.pub ~/.ssh/action.pub <destination>:
     ```
-1. Log into the administrative user (on the managed node) and complete the following steps:
-    1. Move `sira.pub` to the Sira user's `~/.ssh/authorized_keys`. (You will likely need to create the directory first.) Remember to set ownership and permissions sensibly.
-    1. As root, create `/opt/sira/bin`, e.g.:
+1. Log into the managed node admin.
+
+### As the managed node admin
+1. Move `sira.pub` to the Sira user's `~/.ssh/authorized_keys`. (You will likely need to create the directory first.) Remember to set ownership and permissions sensibly.
+1. As root, create `/opt/sira/bin`, e.g.:
+
+    ```
+    $ sudo mkdir -p /opt/sira/bin
+    ```
+
+    Please note that you **must** use this path. Sira does not support alternate installation locations for `sira-client` at this time.
+1. Set the owner (`root:root`) and permissions (`700`) on `sira-client` and move it to `/opt/sira/bin`, e.g.:
+
+    ```
+    $ sudo chown root:root sira-client
+    $ sudo chmod 700 sira-client
+    $ sudo mv sira-client /opt/sira/bin
+    ```
+
+    **It is vitally important that you set ownership and permissions correctly on sira-client!**
+1. Grant the Sira user password-less sudo access to `/opt/sira/bin/sira-client` by adding the following to the appropriate sudoers file for your system:
+
+    ```
+    <sira-user>	ALL=(root:root) NOPASSWD:/opt/sira/bin/sira-client
+    ```
+
+    Note: if granting password-less sudo access makes you queasy, good! It should! This is why Sira supports cryptographically signing both the instructions that the control node program `sira` reads and the instructions that it sends to `sira-client`, rendering this sudo access mostly meaningless unless those keys are compromised (or a vulnerability in `sira-client` compromises this protection).
+1. If you generated an action key, install the action allowed signers file to `/etc/sira/allowed_signers/action`:
+    1. Create the directories specified in the table. Please remember to set the owner, group, and permissions according to the table as well.
+    1. As root, copy the action public key to `/etc/sira/allowed_signers/action`
+    1. As root, modify the newly created file. Move the last field in the file to the beginning of the file. (For more information on this format, see `man ssh-keygen`.)
+
+        For example, the sample public key:
 
         ```
-        $ sudo mkdir -p /opt/sira/bin
+        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLjDP1zGmwWiaaW1i2z/GpVCSb6xLtCvkJtW/yu8dFO sira
         ```
 
-        Please note that you **must** use this path. Sira does not support alternate installation locations for `sira-client` at this time.
-    1. Set the owner (`root:root`) and permissions (`700`) on `sira-client` and move it to `/opt/sira/bin`, e.g.:
+        Becomes:
 
         ```
-        $ sudo chown root:root sira-client
-        $ sudo chmod 700 sira-client
-        $ sudo mv sira-client /opt/sira/bin
-        ```
-
-        **It is vitally important that you set ownership and permissions correctly on sira-client!**
-    1. Grant the Sira user passwordless sudo access to `/opt/sira/bin/sira-client` by adding the following to the appropriate sudoers file for your system:
-
-        ```
-        <sira-user>	ALL=(root:root) NOPASSWD:/opt/sira/bin/sira-client
-        ```
-
-        Note: if granting passwordless sudo access makes you queasy, good! It should! This is why Sira supports cryptographically signing both the instructions that the control node program `sira` reads and the instructions that it sends to `sira-client`, rendering this sudo access mostly meaningless unless those keys are compromised (or a vulnerability in `sira-client` compromises this protection).
-    1. If you generated an action key, install the action allowed signers file to `/etc/sira/allowed_signers/action`:
-        1. Create the directories specified in the table. Please remember to set the owner, group, and permissions according to the table as well.
-        1. As root, copy the action public key to `/etc/sira/allowed_signers/action`
-        1. As root, modify the newly created file. Move the last field in the file to the beginning of the file. (For more information on this format, see `man ssh-keygen`.)
-
-            For example, the sample public key:
-
-            ```
-            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLjDP1zGmwWiaaW1i2z/GpVCSb6xLtCvkJtW/yu8dFO sira
-            ```
-
-            Becomes:
-
-            ```
-            sira ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLjDP1zGmwWiaaW1i2z/GpVCSb6xLtCvkJtW/yu8dFO
-          ```
-    1. Set and verify the owner, group, and permissions on this file according to the table.
+        sira ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLjDP1zGmwWiaaW1i2z/GpVCSb6xLtCvkJtW/yu8dFO
+      ```
+1. Set and verify the owner, group, and permissions on this file according to the table.
+1. Remove the action public key and the installer from the managed node admin.
 
 Once you're done installing across all managed nodes, return to the Automatic Installation section and go through the Final Steps.
 

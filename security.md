@@ -42,14 +42,14 @@ Thus, if both keys are present and properly protected (e.g. by passwords), both 
 
 The files that Sira uses for signing and verifying manifests, tasks, and actions are listed in the table below. Sira does not mandate a specific approach to securing the contents of `/etc/sira`; you are free to implement whatever security scheme works best for you. However, Sira does apply certain defaults when asked to bootstrap a node (NYI); these are listed below.
 
-| File or directory                   | Description                    | Nodes   | Owner:group            | Permissions |
-| :---------------------------------- | :----------------------------- | :------ | :--------------------- | :---------- |
-| /etc/sira/                          | Sira configuration directory   | Both    | root:root              | 0755        |
-| /etc/sira/allowed\_signers/         | Allowed signers directory      | Both    | root:root              | 0755        |
-| /etc/sira/allowed\_signers/action   | Authorizes action public key   | Managed | root:root              | 0644        |
-| /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:root              | 0644        |
-| /etc/sira/keys/                     | Sira SSH key directory         | Control | root:root              | 0755        |
-| /etc/sira/keys/action               | Action private key             | Control | root:\<control-user\>  | 0640        |
-| /etc/sira/keys/action.pub           | Action public key              | Control | root:root              | 0644        |
+| File or directory                   | Description                    | Nodes   | Owner:group                | Permissions |
+| :---------------------------------- | :----------------------------- | :------ | :------------------------- | :---------- |
+| /etc/sira/                          | Sira configuration directory   | Both    | root:root                  | 0755        |
+| /etc/sira/allowed\_signers/         | Allowed signers directory      | Both    | root:root                  | 0755        |
+| /etc/sira/allowed\_signers/action   | Authorizes action public key   | Managed | root:root                  | 0644        |
+| /etc/sira/allowed\_signers/manifest | Authorizes manifest public key | Control | root:root                  | 0644        |
+| /etc/sira/keys/                     | Sira SSH key directory         | Control | root:root                  | 0755        |
+| /etc/sira/keys/action               | Action private key             | Control | root:\<control-node-user\> | 0640        |
+| /etc/sira/keys/action.pub           | Action public key              | Control | root:root                  | 0644        |
 
 The one key not listed above is the **manifest private key**, which belongs on the development machine. You are free to manage and secure this key alongside your other SSH keys.
