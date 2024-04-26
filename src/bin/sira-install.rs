@@ -1,87 +1,10 @@
 //! An installer for sira-client.
 //!
-//! TODO Try to statically link all binaries. Verify with the `file` utility. Examine what's
-//! dynamically linked and how it's licensed.
+//! For usage details, please see [installation.md].
 //!
-//! TODO Move the invocation workflow to a user-facing document and update this doc to point there.
-//!
-//! TODO Remove the "text" in "```text" after converting to this to standalone GFM.
-//!
-//! TODO Check for files left behind by installer and clean them up. Flags don't count.
-//!
-//! # Installation Guide
-//!
-//! Below are step-by-step instructions for installing Sira across both your control node and your
-//! managed nodes. The guide is long, but it should only take a few minutes on the control node and
-//! about a minute per managed node.
-//!
-//! 1. On the control node, as the user who will run Sira:
-//!     1. Install [rustup](https://rustup.rs/).
-//!     1. Compile Sira's control node and client binaries: `cargo install sira`
-//!     1. Generate the Sira user's SSH login key pair:
-//!
-//!        ```text
-//!        $ ssh-keygen -t ed25519 -C "sira@<domain>"
-//!        ```
-//!
-//!        Protecting this key pair with a password is highly recommended but not required.
-//!     1. *(Optional but recommended)* Generate SSH keys to crypographically sign your manifest
-//!        and task files, providing much stronger protection against unauthorized access.
-//!
-//!         1. Generate the key pairs:
-//!
-//!            ```text
-//!            $ ssh-keygen -t ed25519 -C sira -f manifest
-//!            $ ssh-keygen -t ed25519 -C sira -f action
-//!            ```
-//!
-//!            Protecting these key pairs with unique passwords is highly recommended but not required.
-//!         1. Transfer the manifest private key to the account where you will develop your
-//!            manifests and tasks. Remove it from the control node.
-//!         1. Make note of the following invocation. When you wish to sign your manifest and task
-//!            files, you will need to run the following (which you might want to put in a simple
-//!            script on your development machine):
-//!
-//!            ```text
-//!            ssh-keygen -Y sign -n sira -f <path-to-key> <file-name> ...
-//!            ```
-//!
-//! 1. For each managed node:
-//!    TODO Rewrite this after seeing how much I can automate.
-//!     1. On the control node, transfer `sira-install` and `sira-client` to a user who can run tasks
-//!        as root on the managed node, e.g.:
-//!
-//!        ```text
-//!        $ scp ~/.cargo/bin/sira-install ~/.cargo/bin/sira-client <user>@<node>:
-//!        ```
-//!
-//!        If your managed nodes disallow password-based SSH, you might want to transfer the Sira
-//!        user's public SSH key to the same user so that you can install it below. (You can also
-//!        use Sira to disable password-based SSH later, e.g. via [Action::LineInFile].)
-//!
-//!     1. On the managed node:
-//!         1. Add the Sira user.
-//!
-//!            **Important** It is highly recommended that you use a dedicated user for Sira. However, if you intend to use an existing user with sudo access, please be aware that `sira-install` will likely break sudo for this user. This is because `sira-install` will add a line at the end of the sudoers file that only grants the Sira user sudo access to `sira-client`, and the last matching entry in a sudoers file wins. You will need to edit your sudoers file after running `sira-install`, or you may opt to skip `sira-install` and perform the same steps manually. They are documented below and in [security.md](security.md).
-//!         1. Run the installer as root:
-//!
-//!            ```text
-//!            # sira-install <sira-user>
-//!            ```
-//!
-//!            This program performs the following actions;
-//!             - Moves `sira-client` to `/opt/sira/bin`, setting ownership and permissions.
-//!             - TODO Complete this list.
-//!     1. Back on the control node, deploy the Sira user's SSH public key, e.g.:
-//!
-//!        ```text
-//!        scp ~/.ssh/<sira-key>.pub <sira-user>@<node>:
-//!        ```
-//!
-//! 1. On the control node, write a ~/.ssh/config entry that will direct Sira to connect to the
-//!    proper user and use the proper key when connecting to managed nodes.
-//!
-//! [Action::LineInFile]: sira::core::Action::LineInFile
+//! [installation.md]: https://github.com/edev/sira/blob/main/installation.md
+
+// TODO Try to statically link everything. Examine what's dynamically linked and how it's licensed.
 
 use sira::client;
 use sira::config;
@@ -96,35 +19,88 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-// FIle names of the installer and sira-client binaries.
+// SECTION: installer & client binaries
+
+/// The file name of the installer binary (this file).
 const INSTALLER_BIN: &str = "sira-install";
+
+/// The file name of the client binary.
 const CLIENT_BIN: &str = "sira-client";
 
-// The installation directory for sira-client.
+/// The installation directory for the client binary on managed nodes.
 const CLIENT_INSTALL_DIR: &str = "/opt/sira/bin";
 
-// The path of the file where SSH keys are stored on both control and managed nodes. This path is
-// relative to the user's home.
+// SECTION: SSH keys
+
+/// The user's SSH directory on both control and managed nodes, relative to the user's home.
 const SSH_DIR: &str = ".ssh";
 
-// Keys used to log in via SSH as the Sira user on managed nodes.
+/// The SSH private key used to log in via SSH as the Sira user on managed nodes.
 const LOGIN_KEY: &str = "sira";
 
-// Keys used to sign and verify manifest and task files, known as the "manifest key".
+/// The SSH private key used to sign manifest and task files, known as the "manifest key".
 const MANIFEST_KEY: &str = "manifest";
 
-// Keys used to sign and verify generated actions sent to sira-client, known as the "action key".
+/// The SSH private key used to sign actions sent to the client binary, known as the "action key".
 const ACTION_KEY: &str = "action";
 
-// File names, in the CWD, of flag files for the manifest and action keys. If the corresponding key
-// files don't exist, but these flags do, this indicates that we have already asked prompted the
-// administrator to generate these keys during a previous program run and they have declined.
-//
-// Thus, if the keys are missing but the flag files are present, we will simply skip the keys.
+/// Indicates whether a public key is present in one of several locations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PublicKeyState {
+    /// The public key is already installed as an allowed signers file.
+    AllowedSignersFile,
+
+    /// The public key is available in some location that the caller knows and expects.
+    ///
+    /// Most likely, the key is not installed as an allowed signers file, but these semantics are
+    /// up to the code that creates the value.
+    PublicKeyFile,
+
+    /// Cannot find the public key.
+    NotPresent,
+}
+
+// SECTION: SSH key flags
+
+/// The name of the flag file for the manifest key.
+///
+/// If the key files don't exist, but this flag does, this indicates that we have already prompted
+/// the administrator to generate this key during a previous program run and they have declined.
+/// The flag file allows us to remember this choice across program invocations.
+///
+/// Thus, if the key is missing but the flag file is present, we will simply skip the key.
 const MANIFEST_FLAG: &str = ".sira-install-skip-manifest-key";
+
+/// The name of the flag file for the action key.
+///
+/// If the key files don't exist, but this flag does, this indicates that we have already prompted
+/// the administrator to generate this key during a previous program run and they have declined.
+/// The flag file allows us to remember this choice across program invocations.
+///
+/// Thus, if the key is missing but the flag file is present, we will simply skip the key.
 const ACTION_FLAG: &str = ".sira-install-skip-action-key";
 
+/// Program entry point.
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() == 3 {
+        if args[1] == "--managed-node" {
+            // sira-install --managed-node <sira-user>
+            //
+            // Managed node invocation is intentionally undocumented in the public interface. It is
+            // meant for internal use only.
+            managed_node(&args[2]);
+        } else {
+            // sira-install <sira-user> [<admin-user>@]<managed-node>
+            control_node(&args[1], &args[2]);
+        }
+    } else {
+        println!("Please see the installation guide for instructions.");
+    }
+}
+
 // TODO Strongly consider moving this to crypto.rs and deploying globally. Same with key_dir().
+/// Returns the path to the allowed signers directory.
 fn allowed_signers_dir() -> &'static Path {
     static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
 
@@ -137,216 +113,8 @@ fn allowed_signers_dir() -> &'static Path {
         .as_ref()
 }
 
-fn key_dir() -> &'static Path {
-    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
-
-    COMPUTED
-        .get_or_init(|| {
-            let mut dir = config::config_dir();
-            dir.push(KEY_DIR);
-            dir
-        })
-        .as_ref()
-}
-
-/// Indicates whether a public key is present as either an allowed signers file (in the Sira
-/// configuration directory) or a public key file (in some expected location).
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PublicKeyState {
-    AllowedSignersFile,
-    PublicKeyFile,
-    NotPresent,
-}
-
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() == 3 {
-        if args[1] == "--managed-node" {
-            managed_node(&args[2]);
-        } else {
-            control_node(&args[1], &args[2]);
-        }
-    } else {
-        // TODO Write a default help message.
-    }
-}
-
-fn managed_node(sira_user: &str) {
-    // Extract and verify required command-line arguments.
-    //
-    // Tentative signature:
-    //
-    // sira-install --managed-node <sira-user>
-    //
-    // If the flag in these arguments is documented at all, make it clear that it is for internal
-    // use only. To enlist localhost as a managed node, run sira-install normally against
-    // localhost; don't try to use this flag.
-
-    // Move sira.pub to the Sira user's ~/.ssh/authorized_keys, ensuring correct permissions.
-    // Feel free to assume it's at /home/<sira-user>. If someone wants to deploy this in a funky
-    // setup, they can write their own installer or modify this one; this is all well-documented.
-    //
-    // If you're reading this because you want to modify the installer, and you think your changes
-    // will be useful to others as well, please feel free to open an issue to discuss them.
-    {
-        let sira_home_dir = Path::new("/home").join(sira_user);
-        let sira_ssh_dir = sira_home_dir.join(".ssh");
-
-        // Create the Sira user's ~/.ssh if it doesn't exist. If the Sira user doesn't exist,
-        // that's outside our purview and will result in errors from the processes we call. We'll
-        // try to detect it gracefully by checking for the Sira user's home directory, though.
-        if !path_exists(&sira_ssh_dir, "the Sira user's SSH directory") {
-            if !path_exists(&sira_home_dir, "the Sira user's home directory") {
-                panic!(
-                    "Could not find the Sira user's home directory: {}\n\
-                    Have you created the Sira user on this machine?",
-                    sira_home_dir.display(),
-                );
-            }
-
-            println!("Creating the Sira user's ~/.ssh directory.");
-            client::run("mkdir", &[&sira_ssh_dir]).expect("error creating directory");
-
-            println!("Setting owner.");
-            let owner = format!("{sira_user}:{sira_user}");
-            client::run("chown", &[OsStr::new(&owner), sira_ssh_dir.as_ref()])
-                .expect("error chowning directory");
-
-            println!("Setting mode.");
-            let mode = "0755";
-            client::run("chmod", &[OsStr::new(mode), sira_ssh_dir.as_ref()])
-                .expect("error chmodding directory");
-            println!();
-        }
-
-        // For security, deliberately wipe out any existing contents of AUTHORIZED_KEYS.
-        println!("Installing Sira user's public key as ~/.ssh/authorized_keys");
-        let authorized_keys = sira_ssh_dir.join("authorized_keys");
-        client::run("mv", &[&public_key(LOGIN_KEY), &authorized_keys])
-            .expect("error moving key to ~/.ssh/authorized_keys");
-
-        println!("Setting owner.");
-        let owner = format!("{sira_user}:{sira_user}");
-        client::run("chown", &[OsStr::new(&owner), authorized_keys.as_ref()])
-            .expect("error chowning ~/.ssh/authorized_keys");
-
-        println!("Setting mode.");
-        let mode = "0644";
-        client::run("chmod", &[OsStr::new(mode), authorized_keys.as_ref()])
-            .expect("error chmodding ~/.ssh/authorized_keys");
-        println!();
-    }
-
-    // Ensure existence of /opt/sira/bin. Don't mangle the administrator's owner, group, or
-    // permissions: by default, this operation should require root, but if the
-    // administrator is doing something different, we'll trust them to know what they're doing.
-    if !path_exists(CLIENT_INSTALL_DIR, "client install directory") {
-        println!("Creating {CLIENT_INSTALL_DIR}");
-        client::run("mkdir", &["-p", CLIENT_INSTALL_DIR]).expect("error creating directory");
-        println!();
-    }
-
-    // Move sira-client to /opt/sira/bin/sira-client. Ensure correct user, group, & permissions.
-    {
-        println!("Installing {CLIENT_BIN} to {CLIENT_INSTALL_DIR}");
-        client::run("mv", &[CLIENT_BIN, CLIENT_INSTALL_DIR]).expect("error moving client binary");
-
-        println!("Setting owner.");
-        let client_path = Path::new(CLIENT_INSTALL_DIR).join(CLIENT_BIN);
-        let owner = "root:root";
-        client::run("chown", &[OsStr::new(owner), client_path.as_ref()])
-            .expect("error chowning client binary");
-
-        println!("Setting mode.");
-        let mode = "0700";
-        client::run("chmod", &[OsStr::new(mode), client_path.as_ref()])
-            .expect("error chmodding client binary");
-        println!();
-    }
-
-    // Install the Sira user in sudoers, idempotently.
-    //
-    // If /etc/sudoers.d exists, use it. Otherwise, modify /etc/sudoers.
-    {
-        // Components of the eventual Action::LineInFile; we will shadow these if needed.
-        let path = "/etc/sudoers";
-        let line = format!("{sira_user}\tALL=(root:root) NOPASSWD:/opt/sira/bin/sira-client");
-        let pattern = None;
-        let after = None;
-        let indent = false;
-
-        println!("Installing {sira_user} as a sudoer.");
-        if path_exists("/etc/sudoers.d", "/etc/sudoers.d directory") {
-            let path = "/etc/sudoers.d/10_sira";
-
-            if !path_exists(path, "Sira sudoers file") {
-                println!("Creating file: {path}");
-                let _ = File::create(path).expect("could not create sudoers file");
-
-                println!("Setting mode.");
-                client::run("chmod", &["0640", path]).expect("error chmodding sudoers file");
-            }
-
-            println!("Updating {path} with entry for {sira_user}");
-            action::line_in_file(&Action::LineInFile {
-                path: path.to_string(),
-                line,
-                pattern,
-                after,
-                indent,
-            })
-            .expect("error updating sudoers file");
-        } else {
-            println!("Updating {path} with entry for {sira_user}");
-            action::line_in_file(&Action::LineInFile {
-                path: path.to_string(),
-                line,
-                pattern,
-                after,
-                indent,
-            })
-            .expect("error updating sudoers file");
-        }
-        println!();
-    }
-
-    // Ensure the existence of the /etc/sira directory structure.
-    create_config_dirs();
-
-    // If present in the CWD, install the action allowed_signers file. Remember to move the
-    // identity from the end to the start. If it already exists, do not replace it.
-    {
-        let cwd = ".";
-        let key = ACTION_KEY;
-        if key_exists(cwd, public_key(key)) {
-            install_allowed_signers_file(cwd, key);
-        }
-    }
-}
-
+/// Installer logic that should run on the control node as the control node user.
 fn control_node(sira_user: &str, destination: &str) {
-    // Extract and verify required command-line arguments.
-    //
-    // Tentative signature:
-    //
-    // sira-install <sira-user> [<admin-user>@]<managed-node>
-    //
-    // If you need to provide options to the SSH connection, you must do so through other means,
-    // such as ~/.ssh/config, because we use both scp and ssh, and they specify options
-    // differently. For example, port number is -P on scp and -p on ssh, and scp exits with an
-    // error if passed -p.
-
-    // Prompt user for consent, and then generate SSH key pairs, if the files don't already exist:
-    //  - sira (for login)
-    //  - manifest
-    //  - action
-    //
-    // If they do exist, use them without prompting. This program is run once for every managed
-    // node, so we should make repeated invocations as effortless and painless as possible.
-    //
-    // If they don't exist and the user declines to create them, touch some config files to store
-    // that preference, e.g. .sira-install-skip-manifest-key and .sira-install-skip-action-key.
-
     // Compute the Cargo bin directory, typically ~/.cargo/bin
     let cargo_bin_dir = {
         let mut cargo_home = home::cargo_home().expect("could not retrieve Cargo directory");
@@ -357,13 +125,14 @@ fn control_node(sira_user: &str, destination: &str) {
     // Compute the user's home directory.
     let home_dir = home::home_dir().expect("could not retrieve user's home directory");
 
-    // List of files to transfer to managed node (in a moment).
+    // List of files to transfer to managed node (in a moment); this is dynamic, so we'll add to it
+    // as we proceed.
     let mut file_transfers = vec![
         cargo_bin_dir.join(INSTALLER_BIN),
         cargo_bin_dir.join(CLIENT_BIN),
     ];
 
-    // Compute the user's SSH key directory, i.e. ~/.ssh
+    // Compute the current user's SSH key directory, i.e. ~/.ssh
     let ssh_dir = home_dir.join(SSH_DIR);
 
     // Ensure that the login SSH key pair exists.
@@ -500,39 +269,34 @@ fn control_node(sira_user: &str, destination: &str) {
             );
         }
 
-        let installed = if private_installed && public_installed {
-            // The action key is already installed on the control node. Select it for deployment to
-            // managed nodes.
+        // Generate and install the key, if needed.
+        //
+        // Note: the logic below depends on the XOR checks above.
+        let transfer_key = if private_installed {
             true
-        } else if private_exists && public_exists {
-            // The action key is not installed but is present in ~/.ssh. Install it, and select it
-            // for deployment to managed nodes.
+        } else if private_exists
+            || prompt_to_generate_signing_key_pair(&ssh_dir, ACTION_KEY, ACTION_FLAG)
+        {
+            install_signing_key_pair(&ssh_dir, ACTION_KEY);
             true
         } else {
-            // Prompt to generate. If the user consents, then install it and select it for
-            // deployment to managed nodes. If the user declines, then set a flag file to remember
-            // the user's choice.
-            let key_created =
-                prompt_to_generate_signing_key_pair(&ssh_dir, ACTION_KEY, ACTION_FLAG);
-            if key_created {
-                install_signing_key_pair(&ssh_dir, ACTION_KEY);
-            }
-            key_created
+            false
         };
-        if installed {
+
+        if transfer_key {
             file_transfers.push(key_dir().join(public_key(ACTION_KEY)));
         }
     }
 
+    // Transfer files to managed node via SCP:
+    //  - sira-install (required)
+    //  - sira-client  (required)
+    //  - sira.pub     (required)
+    //  - action.pub   (optional)
+    //
+    // Invocation;
+    // scp <file_transfers> <destination>:
     {
-        // Transfer files to managed node via SCP:
-        //  - sira-install (required)
-        //  - sira-client  (required)
-        //  - sira.pub     (required)
-        //  - action.pub   (optional)
-        //
-        // Invocation;
-        // scp <file_transfers> <destination>
         println!("Transferring files to {destination}");
         let mut args: Vec<&OsStr> = file_transfers
             .iter()
@@ -544,9 +308,9 @@ fn control_node(sira_user: &str, destination: &str) {
         println!();
     }
 
-    // SSH over to the managed node using the user@host from the command-line arguments. Run:
+    // SSH over to the managed node using the destination from the command-line arguments. Run:
     //
-    // ssh -t [<user>@]<host> sudo ./sira-install --managed-node <sira-user>
+    // ssh -t <destination> sudo ./sira-install --managed-node <sira-user>
     //
     // Be sure to use std::process::Command::new("ssh") rather than the openssh crate, because we
     // specifically WANT stdio to be piped to enable password-protected sudo in this case. The `-t`
@@ -569,7 +333,7 @@ fn control_node(sira_user: &str, destination: &str) {
 /// Checks whether a public key is present either in the public key directory or as an allowed
 /// signers file.
 ///
-/// if the public key is in both locations, the allowed signers file takes precedence.
+/// If the public key is in both locations, the allowed signers file takes precedence.
 ///
 /// Panics if unable to check either location.
 fn check_public_key(
@@ -588,6 +352,7 @@ fn check_public_key(
     PublicKeyState::NotPresent
 }
 
+/// Creates a global configuration directory, if it doesn't exist.
 fn create_config_dir(dir: impl AsRef<Path>) {
     if path_exists(dir.as_ref(), "config directory") {
         return;
@@ -627,7 +392,7 @@ fn create_config_dir(dir: impl AsRef<Path>) {
     println!();
 }
 
-/// Create the Sira config directory structure if it doesn't exist.
+/// Create the Sira config directory structure, if it doesn't exist.
 fn create_config_dirs() {
     // We check for each directory separately because we are trying to be minimally invasive over
     // the administrator's owner, group, and permissions settings. For instance, if the config dir
@@ -739,6 +504,7 @@ fn install_allowed_signers_file(dir: impl AsRef<Path>, key_name: impl AsRef<Path
     println!("Allowed signers file installed.\n");
 }
 
+/// Copies the public and private files for an SSH key to Sira's key directory.
 fn install_signing_key_pair(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) {
     let private_key_file = dir.as_ref().join(key_name.as_ref());
     let public_key_file = dir.as_ref().join(public_key(&key_name));
@@ -816,12 +582,177 @@ fn install_signing_key_pair(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) {
     println!("Signing key installed.");
 }
 
+/// Returns the path to the directory where we store cryptographic signing keys.
+fn key_dir() -> &'static Path {
+    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
+
+    COMPUTED
+        .get_or_init(|| {
+            let mut dir = config::config_dir();
+            dir.push(KEY_DIR);
+            dir
+        })
+        .as_ref()
+}
+
 /// Checks whether a key exists, panicking if we can't determine an answer.
 ///
 /// This is a wrapper around [Path::try_exists]. It applies key-file-specific logic and error text.
 fn key_exists(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) -> bool {
     let path = dir.as_ref().join(key_name.as_ref());
     path_exists(path, "key file")
+}
+
+/// Installer logic that should run on the managed node as root.
+fn managed_node(sira_user: &str) {
+    // Move the login public key to the Sira user's ~/.ssh/authorized_keys, ensuring correct permissions.
+    // Feel free to assume it's at /home/<sira-user>. If someone wants to deploy this in a funky
+    // setup, they can write their own installer or modify this one; this is all well-documented.
+    //
+    // If you're reading this because you want to modify the installer, and you think your changes
+    // will be useful to others as well, please feel free to open an issue to discuss them.
+    {
+        let sira_home_dir = Path::new("/home").join(sira_user);
+        let sira_ssh_dir = sira_home_dir.join(".ssh");
+
+        // Create the Sira user's ~/.ssh if it doesn't exist. If the Sira user doesn't exist,
+        // that's outside our purview and will result in errors from the processes we call. We'll
+        // try to detect it gracefully by checking for the Sira user's home directory, though.
+        if !path_exists(&sira_ssh_dir, "the Sira user's SSH directory") {
+            if !path_exists(&sira_home_dir, "the Sira user's home directory") {
+                panic!(
+                    "Could not find the Sira user's home directory: {}\n\
+                    Have you created the Sira user on this machine?",
+                    sira_home_dir.display(),
+                );
+            }
+
+            println!("Creating the Sira user's ~/.ssh directory.");
+            client::run("mkdir", &[&sira_ssh_dir]).expect("error creating directory");
+
+            println!("Setting owner.");
+            let owner = format!("{sira_user}:{sira_user}");
+            client::run("chown", &[OsStr::new(&owner), sira_ssh_dir.as_ref()])
+                .expect("error chowning directory");
+
+            println!("Setting mode.");
+            let mode = "0755";
+            client::run("chmod", &[OsStr::new(mode), sira_ssh_dir.as_ref()])
+                .expect("error chmodding directory");
+            println!();
+        }
+
+        // For security, deliberately wipe out any existing contents of AUTHORIZED_KEYS.
+        println!("Installing Sira user's public key as ~/.ssh/authorized_keys");
+        let authorized_keys = sira_ssh_dir.join("authorized_keys");
+        client::run("mv", &[&public_key(LOGIN_KEY), &authorized_keys])
+            .expect("error moving key to ~/.ssh/authorized_keys");
+
+        println!("Setting owner.");
+        let owner = format!("{sira_user}:{sira_user}");
+        client::run("chown", &[OsStr::new(&owner), authorized_keys.as_ref()])
+            .expect("error chowning ~/.ssh/authorized_keys");
+
+        println!("Setting mode.");
+        let mode = "0644";
+        client::run("chmod", &[OsStr::new(mode), authorized_keys.as_ref()])
+            .expect("error chmodding ~/.ssh/authorized_keys");
+        println!();
+    }
+
+    // Ensure existence of the client install directory. Don't mangle the administrator's owner,
+    // group, or permissions: by default, this operation should require root, but if the
+    // administrator is doing something different, we'll trust them to know what they're doing.
+    if !path_exists(CLIENT_INSTALL_DIR, "client install directory") {
+        println!("Creating {CLIENT_INSTALL_DIR}");
+        client::run("mkdir", &["-p", CLIENT_INSTALL_DIR]).expect("error creating directory");
+        println!();
+    }
+
+    // Move the client binary to the client install directory.
+    //
+    // Ensure correct user, group, & permissions.
+    {
+        println!("Installing {CLIENT_BIN} to {CLIENT_INSTALL_DIR}");
+        client::run("mv", &[CLIENT_BIN, CLIENT_INSTALL_DIR]).expect("error moving client binary");
+
+        println!("Setting owner.");
+        let client_path = Path::new(CLIENT_INSTALL_DIR).join(CLIENT_BIN);
+        let owner = "root:root";
+        client::run("chown", &[OsStr::new(owner), client_path.as_ref()])
+            .expect("error chowning client binary");
+
+        println!("Setting mode.");
+        let mode = "0700";
+        client::run("chmod", &[OsStr::new(mode), client_path.as_ref()])
+            .expect("error chmodding client binary");
+        println!();
+    }
+
+    // Install the Sira user in sudoers, idempotently.
+    //
+    // If /etc/sudoers.d exists, use it. Otherwise, modify /etc/sudoers.
+    {
+        // Components of the eventual Action::LineInFile; we will shadow these if needed.
+        let path = "/etc/sudoers";
+        let line = format!("{sira_user}\tALL=(root:root) NOPASSWD:/opt/sira/bin/sira-client");
+        let pattern = None;
+        let after = None;
+        let indent = false;
+
+        println!("Installing {sira_user} as a sudoer.");
+        if path_exists("/etc/sudoers.d", "/etc/sudoers.d directory") {
+            let path = "/etc/sudoers.d/10_sira";
+
+            if !path_exists(path, "Sira sudoers file") {
+                println!("Creating file: {path}");
+                let _ = File::create(path).expect("could not create sudoers file");
+
+                println!("Setting mode.");
+                client::run("chmod", &["0640", path]).expect("error chmodding sudoers file");
+            }
+
+            println!("Updating {path} with entry for {sira_user}");
+            action::line_in_file(&Action::LineInFile {
+                path: path.to_string(),
+                line,
+                pattern,
+                after,
+                indent,
+            })
+            .expect("error updating sudoers file");
+        } else {
+            println!("Updating {path} with entry for {sira_user}");
+            action::line_in_file(&Action::LineInFile {
+                path: path.to_string(),
+                line,
+                pattern,
+                after,
+                indent,
+            })
+            .expect("error updating sudoers file");
+        }
+        println!();
+    }
+
+    create_config_dirs();
+
+    // If present in the CWD, install the action allowed signers file. Remember to move the
+    // identity from the end to the start. If it already exists, do not replace it.
+    {
+        let cwd = ".";
+        let key = ACTION_KEY;
+        if key_exists(cwd, public_key(key)) {
+            install_allowed_signers_file(cwd, key);
+
+            // Remove action.pub.
+            fs::remove_file(Path::new(cwd).join(public_key(key)))
+                .expect("error cleaning up action public key");
+        }
+    }
+
+    // Remove the installer; we're done with it.
+    fs::remove_file(INSTALLER_BIN).expect("error cleaning up installer");
 }
 
 /// Wraps [Path::try_exists] with a panic in case of failure
