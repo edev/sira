@@ -296,6 +296,7 @@ fn control_node(sira_user: &str, destination: &str) {
     //
     // Invocation;
     // scp <file_transfers> <destination>:
+    // TODO Add white space after declining to generate action key.
     {
         println!("Transferring files to {destination}");
         let mut args: Vec<&OsStr> = file_transfers
