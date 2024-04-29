@@ -8,6 +8,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(doc)]
 use std::sync::Arc;
 
+// TODO Strongly consider using mktemp instead of a well-known-file.
+//
+// I used this initially because the Rust temporary directory crate warned me that using a named
+// temporary file would be insecure. However, mktemp should address this, AFAIK.
+//
+// After replacing this, see if there are any other reasons the Sira user needs to have a home
+// directory. (I suspect not.) If it's easy to clear any remaining requirements, then do so and
+// modify the installation guide to clarify that the Sira user does not need a home directory. (The
+// control node user always will, though.)
 /// The relative path to the temporary file that the `sira` and `sira-client` both use when
 /// uploading files.
 pub const FILE_TRANSFER_PATH: &str = ".sira-transfer";
