@@ -106,6 +106,7 @@ sira-install <sira-user> <managed-node-admin>@<managed-node>
       - hello_world.yaml
 
     # ~/hello_world.yaml
+    ---
     name: Hello World
     actions:
       - command:
