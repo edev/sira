@@ -62,22 +62,22 @@ sira-install <sira-user> <managed-node-admin>@<managed-node>
 1. Transfer the manifest private key (e.g. `~/.ssh/manifest`) from the control node user to the account where you will develop your manifests and tasks. Remove it from the control node user.
 1. Make note of the following invocation. When you wish to sign your manifest and task files, you will need to run the following (which you might want to put in a simple script on your development machine):
 
-   ```
-   ssh-keygen -Y sign -n sira -f <path-to-key> <file-name> ...
-   ```
+    ```
+    ssh-keygen -Y sign -n sira -f <path-to-key> <file-name> ...
+    ```
 
-   Example script:
+    Example script:
 
-   ```
-   #!/bin/bash
+    ```
+    #!/bin/bash
 
-   set -e
+    set -e
 
-   # For ease of use, consider starting ssh-agent on login and using
-   # AddKeysToAgent in ~/.ssh/config
+    # For ease of use, consider starting ssh-agent on login and using
+    # AddKeysToAgent in ~/.ssh/config
 
-   ssh-keygen -Y sign -n sira -f ~/.ssh/manifest "$@"
-   ```
+    ssh-keygen -Y sign -n sira -f ~/.ssh/manifest "$@"
+    ```
 1. As the control node user, configure ~/.ssh/config to meet the following requirements. (How you do this will vary depending on your setup.)
     1. When connecting to managed nodes as the Sira user, use the login key (e.g. `~/.ssh/sira`).
     1. If possible, when connecting to managed nodes, log in as the Sira user by default. If you don't set this property, you will need to write `<user>@<host>` instead of simply `<host>` in all of your manifest files.
@@ -156,7 +156,7 @@ You're done! Congratulations! If you're looking to further automate and elevate 
 
             ```
             sira ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLjDP1zGmwWiaaW1i2z/GpVCSb6xLtCvkJtW/yu8dFO
-          ```
+            ```
     1. Install the action key files, e.g.:
 
         ```
@@ -221,7 +221,7 @@ You're done! Congratulations! If you're looking to further automate and elevate 
 
         ```
         sira ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOLjDP1zGmwWiaaW1i2z/GpVCSb6xLtCvkJtW/yu8dFO
-      ```
+        ```
 1. Set and verify the owner, group, and permissions on this file according to the table.
 1. Remove the action public key and the installer from the managed node admin.
 
