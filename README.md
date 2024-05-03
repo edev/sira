@@ -1,10 +1,6 @@
 # Sira: Simple Remote Administration
 
-Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of computers (including virtual machines) running Unix-like operating systems.
-
-## Project status
-
-This project is in **initial development.** It is not yet functional and is not ready for use on any level whatsoever.
+Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of Linux computers (including virtual machines).
 
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
@@ -49,6 +45,16 @@ Sira's guiding principles are as follows:
 Sira is only tested on Linux with 64-bit x86 CPUs. It might work on other Unix-like systems such as MacOS and BSD, and it might work on other architectures like 64-bit Arm, but these are untested. It absolutely **will not** work on Windows.
 
 Since Sira is written in Rust and compiled to binary, it absolutely **will not** manage systems that are binary-incompatible with the control node. For instance, an x86 control node will not manage Arm nodes.
+
+## Project status
+
+Sira is a personal project. This means that I invest time in Sira at my sole discretion. I offer no commitments or assurances of any kind. Like most people, I am a human being with bills to pay and a life outside of software.
+
+If you have a professional interest in Sira and you want to hire me to develop and maintain it, please feel free to get in touch! Of course, the license also permits you to fork it and develop it privately, if you prefer.
+
+If community interest develops around Sira, I am open to the possibility of evolving the project into a collaborative, community effort.
+
+**Sira is experimental!** The core of Sira is fully functional and well-documented. You can write manifest and task files, with or without cryptographic signatures, and they will execute fully and correctly. Outside of the core, some basic features, such as the UI, are not complete. Other planned features, such as the auto-update system, are not yet implemented on any level whatsoever. Additionally, breaking changes may occur at any time, as Sira has not yet reached its 0.1 release.
 
 ## License
 
