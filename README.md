@@ -5,6 +5,15 @@ Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing sm
 ## Example
 
 ```yaml
+# manifests/base.yaml
+---
+name: debian-base
+hosts:
+  - zen4
+include:
+  - tasks/base.yaml
+
+# tasks/base.yaml
 ---
 name: Disallow password-based SSH connections
 actions:
