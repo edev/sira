@@ -2,6 +2,45 @@
 
 Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of Linux computers (including virtual machines).
 
+## Example
+
+```yaml
+---
+name: Disallow password-based SSH connections
+actions:
+  - command:
+      - cp $config_file $copy
+  - line_in_file:
+      path: $config_file
+      line: PasswordAuthentication no
+      pattern: "#PasswordAuthentication "
+  # For extra peace of mind, verify PasswordAuthentication isn't enabled elsewhere.
+  - script:
+      name: Verify that password authentication is not enabled
+      contents: |
+        #!/bin/bash
+
+        grep -q "^ *PasswordAuthentication yes" $config_file
+        if [[ $? == 0 ]]; then
+          >&2 echo "Found 'PasswordAuthentication yes'. Please update your task file."
+          exit 1
+        fi
+  - script:
+      name: Restart ssh.service if config changed
+      contents: |
+        #!/bin/bash
+
+        diff $config_file $copy
+        if [[ $? != 0 ]]; then
+          systemctl restart ssh.service
+        fi
+  - command:
+      - rm $copy
+vars:
+  config_file: /etc/ssh/sshd_config
+  copy: /root/.sshd_config.tmp
+```
+
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
 If these tools work well for you, great! Keep using them!
