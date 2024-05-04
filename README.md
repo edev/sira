@@ -2,7 +2,68 @@
 
 Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of Linux computers (including virtual machines).
 
-## Example
+By focusing on small, simple deployments, Sira can favor ergonomics, readability, and obvious correctness. By only supporting Linux, Sira can integrate beautifully and natively into Linux workflows.
+
+## Example: basic features
+
+```yaml
+# basic/manifest.yaml
+---
+name: Welcome to Sira!
+hosts:
+  - zen3-linux
+include:
+  - task.yaml
+```
+
+```yaml
+# basic/task.yaml
+---
+name: Let's start with the hasics...
+actions:
+  - command:
+      - apt-get install -y zsh
+      - chsh --shell /bin/zsh me
+  - upload:
+      from:  files/.zshrc.base
+      to:    /home/me/.zshrc
+      user: me
+      group: me
+  - line_in_file:
+      path: /home/me/.zshrc
+      line: eval "$(ssh-agent -s)" >/dev/null
+  - script:
+      name: Install oh-my-zsh
+      user: me
+      contents: |
+        #!/bin/bash
+
+        cd
+        if [[ -e ~/.oh-my-zsh ]]; then
+          exit
+        fi
+        sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended --keep-zshrc
+```
+
+```bash
+$ eval $(ssh-agent -s)
+$ ssh-add ~/.ssh/sira
+$ sira basic/manifest.yaml
+```
+
+## Example: scripting
+
+```yaml
+# Example showing Sira incorporating scripts and scripts incorporating Sira
+```
+
+## Example: variables
+
+```yaml
+# Example installing packages via apt or apt-get
+```
+
+## Example: disallow password-based SSH connections
 
 ```yaml
 # manifests/base.yaml
