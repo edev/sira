@@ -11,7 +11,7 @@ By focusing on small, simple deployments, Sira can favor ergonomics, readability
 ---
 name: Welcome to Sira!
 hosts:
-  - zen3-linux
+  - zen4
 include:
   - task.yaml
 ```
@@ -46,9 +46,10 @@ actions:
 ```
 
 ```bash
-$ eval $(ssh-agent -s)
-$ ssh-add ~/.ssh/sira
-$ sira basic/manifest.yaml
+# At the terminal
+me@zen4:~$ eval $(ssh-agent -s)
+me@zen4:~$ ssh-add ~/.ssh/sira
+me@zen4:~$ sira basic/manifest.yaml
 ```
 
 ## Example: scripting
