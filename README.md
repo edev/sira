@@ -1,14 +1,12 @@
 # Sira: Simple Remote Administration
 
-Sira ("SIGH-rah", but pronounce it however you please) is a tool for managing small collections of Linux computers (including virtual machines).
-
-By focusing on small, simple deployments, Sira can favor ergonomics, readability, and obvious correctness. By only supporting Linux, Sira can integrate beautifully and natively into Linux workflows.
+Sira (officially pronounced "SIGH-rah", but pronounce it however you wish) is a tool for managing small collections of Linux computers (including virtual machines). By focusing on small, simple deployments, Sira can favor ergonomics, readability, and obvious correctness over more advanced features. By only supporting Linux, Sira can integrate beautifully and natively into Linux workflows. For simple, Linux-focused networks, Sira aims to provide a transparent abstraction that makes automating system administration as simple as writing the commands in an SSH session or script.
 
 ## Getting started
 
-To get a feel for Sira, keep reading below. Once you're ready to try it out yourself, work through the [installation guide](/installation.md) and return here once you're done.
+To get a feel for Sira, keep reading below. Once you're ready to try it for yourself, work through the [installation guide](/installation.md) and return here once you're done.
 
-Sira is split into a control node application called `sira` and a client application called `sira-client`. You pass `sira` a list of files containing instructions, and it connects to nodes via SSH and invokes `sira-client` to execute those instructions. There is no always-on server, and you do not need to open any extra ports. In fact, the account that runs `sira-client` is far better secured than a typical administrator's account. (For details, see [security.md](/security.md).)
+Sira is split into a control node application called `sira` and a client application called `sira-client`. You pass `sira` a list of files containing instructions, and it connects to nodes via SSH and invokes `sira-client` to execute those instructions. There is no always-on server, and you do not need to open any extra ports. In fact, the account that runs `sira-client` is far better secured than a typical administrator's account! (For details, see [security.md](/security.md).)
 
 ### Installing `sira-client` on a managed node
 
@@ -32,19 +30,19 @@ Sira supports a deliberately simple, minimal set of instructions, which Sira cal
 # Run one or more commands on managed nodes (as root).
 #
 # Note that these processes are created directly and are not interpreted by a shell, so shell
-# features like ~ and | will not work. You can always invoke a shell, if you need.
+# features like ~ and | will not work. You can always invoke a shell, if you need one.
 - command:
     - apt-get install -y qemu-system-x86
     - snap install core
     - sudo -u alice bash -c "mkdir -p ~/.ssh"
 
-# For more complex logic, run shell scripts in arbitrary languages and as arbitrary users.
+# For more complex logic, you can run shell scripts in arbitrary languages and as arbitrary users.
 - script:
     name: Install or update Rust
     user: alice
 
     # Note the "|" after contents. This enables block scalar syntax, which tells Sira to treat the
-    # shebang as part of contents and not as a YAML comment.
+    # shebang as part of the script and not as a YAML comment.
     contents: |
       #!/bin/bash
 
@@ -79,22 +77,23 @@ Sira supports a deliberately simple, minimal set of instructions, which Sira cal
 The design goal for Sira's actions is not to abstract away the details of configuring your systems but to provide a transparent way to perform these same actions across your whole (Linux) network. Performing actions through Sira should look and feel almost exactly the same as performing them by hand in an SSH session.
 
 To access the full documentation, you can do any of the following:
-- If Sira is ever uploaded to [crates.io], you will be able to view it at [docs.rs]. Click on the `core` module and then the `Action` enum. (This currently is not the case.)
+- If Sira is ever uploaded to [crates.io](https://crates.io), you will be able to view it at [docs.rs](https://docs.rs). Click on the `core` module and then the `Action` enum. (This currently is not the case.)
 - Clone this repository, and then run `cargo doc --open` from the repository's directory. Click on the `core` module and then the `Action` enum.
 - Browse to [/src/core/action.rs](src/core/action.rs) and read the documentation in source form.
 
 ### Tasks
 
-Sira organizes lists of actions as **tasks**. Each task is a YAML document, meaning that it starts with `---`. You can write multiple tasks in a single file, if you prefer, or stick to one task per file. A task groups actions and optionally defines variables for those actions (covered later):
+Sira organizes lists of actions as **tasks**. Each task is a YAML document, meaning that it starts with `---`. You can write multiple tasks in a single file, if you prefer, or stick to one task per file. A task groups actions and optionally defines variables for those actions (explained later):
 
 ```yaml
 ---
 name: Install system packages
 actions:
-  - apt-get install $apt_packages
-  - snap install core
-  - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-  - flatpak install --noninteractive flathub $flathub_bundles
+  - command:
+      - apt-get install $apt_packages
+      - snap install core
+      - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - flatpak install --noninteractive flathub $flathub_bundles
 vars:
   # We'll make these much more readable a little later in this guide!
   apt_packages: built-essential git qemu-system-x86
@@ -142,7 +141,7 @@ vars:
 
 Sira groups task files into **manifests** that associate task files with managed nodes (i.e. hosts). Just like tasks, you can write multiple manifests in a manifest file or stick to one per file. Note that you cannot place manifests and tasks in the same file.
 
-```
+```yaml
 ---
 name: debian-base
 hosts:
@@ -161,13 +160,17 @@ As the examples above demonstrated, manifests and tasks can define variables for
 The process is intentionally simple, both so that you don't have to think about complex mechanics and so that Sira can remain agnostic of shell languages, etc. Right before sending an action to a managed node:
 
 1. Sira compiles a dictionary mapping variable names to values.
-2. For each variable `v`, Sira searches all fields of the action (except Booleans) for occurrences of `$v` or `${v}` and replaces that text with the variable's value. This consists of one regular expression match-and-replace; it is not recursive.
+2. For each variable `v`, Sira searches all fields of the action (except Booleans) for occurrences of `$v` or `${v}` and replaces that text with the variable's value. This is implemented as a single regular expression match-and-replace operation; it is not recursive.
 
-Task variables override manifest variables, but I am considering reversing this. Best practice for now is to avoid defining a variable in both a task and a manifest that includes the task.
+Precise details are below, but as long as you keep things simple, all you need to remember are the two steps above.
 
-Sira replaces variables in the order in which they were defined. However, depending on this behavior, e.g. to try to create recursive variable substitutions, is a *really bad idea.* It will work, but your files will almost certainly become inscrutable and impossible to maintain!
+Task variables override manifest variables, but I am considering reversing this. Best practice for now is to avoid defining any given variable in both a task and a manifest that includes the task. Pick one, not both.
+
+Sira replaces variables in the order in which they were defined. However, it is a *really bad idea* to depend on this behavior, e.g. to try to create recursive variable substitutions. It will work, but your files will almost certainly become inscrutable and impossible to maintain!
 
 Variables are not substituted in manifests or in other fields of tasks (e.g. `name`). They are only applied to actions and only in the manner stated above. There is no other "magic."
+
+For maximum flexibility, there is no error detection when substituting variables.
 
 ### Advanced feature: harness the full power of YAML
 
@@ -179,10 +182,11 @@ Using a closely related feature, folded scalar syntax, we can clean up the packa
 ---
 name: Install system packages
 actions:
-  - apt-get install $apt_packages
-  - snap install core
-  - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-  - flatpak install --noninteractive flathub $flathub_bundles
+  - command: 
+      - apt-get install $apt_packages
+      - snap install core
+      - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - flatpak install --noninteractive flathub $flathub_bundles
 vars:
   apt_packages: >-
     built-essential
@@ -192,6 +196,8 @@ vars:
     com.discordapp.Discord
     com.vscodium.codium
 ```
+
+If you find a creative way to harness the power of YAML to improve your manifest and task files, feel free to open an issue to discuss adding it here!
 
 ### Advanced feature: use Sira in shell scripts
 
@@ -209,11 +215,11 @@ sira distribute-files.yaml
 
 ### Cryptographically sign manifests, tasks, and actions
 
-Sira supports signing manifest and task files as well as actions sent to `sira-client`. If these keys are installed, `sira` will refuse to execute unsigned or improperly signed manifest and task files, and `sira-client` will refuse to execute unsigned or improperly signed instructions. See [security.md](/security.md) for details on how this works and [installation.md](/installation.md) for instructions on setting this up. For msot users, `sira-install` handles this automatically.
+Sira supports signing manifest and task files as well as actions sent to `sira-client`. If these keys are installed, `sira` will refuse to execute unsigned or improperly signed manifest and task files, and `sira-client` will refuse to execute unsigned or improperly signed actions. See [security.md](/security.md) for details on how this works and [installation.md](/installation.md) for instructions on setting this up. For most users, `sira-install` handles this automatically.
 
 If you are using cryptographic signing, you can sign your manifest and task files after changes using OpenSSH's `ssh-keygen`:
 
-```
+```bash
 ssh-keygen -Y sign -n sira -f <path-to-key> <file-name> ...
 ```
 
@@ -234,9 +240,9 @@ sira <manifest-file> ...
 
 Sira runs each manifest, task, and action in order; there are no reordering mechanics or dependency graphs. For each managed node, Sira simply runs through its actions as quickly as possible. It *does not* wait for all nodes to complete an instruction before proceeding to the next. If you wish to apply checkpoints, you can write multiple manifest files and call `sira` several times, e.g. in a script (as discussed above).
 
-If a host is unreachable, Sira will ignore it and continue processing other hosts. At the end of the run, `sira` will exit with a `0` exit code signaling success.
+If a managed node is unreachable, Sira will ignore it and continue processing other nodes. At the end of the run, `sira` will exit with a `0` exit code signaling success.
 
-If an action fails on any managed node, that node aborts, and the other hosts continue processing. Once the run is complete, `sira` will exit with a non-zero exit code.
+If an action fails on any managed node, that node aborts, and the other nodes continue processing. Once the run is complete, `sira` will exit with a non-zero exit code.
 
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
@@ -299,7 +305,7 @@ If you have a professional interest in Sira and you want to hire me to develop a
 
 If community interest develops around Sira, I am open to the possibility of evolving the project into a collaborative, community effort.
 
-**Sira is experimental!** The core of Sira is fully functional and well-documented. You can write manifest and task files, with or without cryptographic signatures, and they will execute fully and correctly. Outside of the core, some basic features, such as the UI, are not complete. Other planned features, such as the auto-update system, are not yet implemented on any level whatsoever. Additionally, breaking changes may occur at any time, as Sira has not yet reached its 0.1 release.
+**Sira is experimental!** The core of Sira is fully functional and well-documented. You can write manifest and task files, with or without cryptographic signatures, and they will execute fully and correctly. Outside of the core, some basic features, such as the UI, are not complete. Other planned features, such as the auto-update system, are not yet implemented on any level whatsoever. Additionally, breaking changes may occur at any time.
 
 ## License
 
