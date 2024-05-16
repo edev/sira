@@ -296,6 +296,51 @@ vars:
   email: alice@example.com
 ```
 
+### Advanced technique: assert success (or handle failure)
+
+Since Sira stops running actions on a given host when an action on that host exits with a failure exit code, it's trivial to insert checks or even error-handling logic into your tasks. For instance:
+
+```yaml
+name: Update /etc/apt/sources.list
+actions:
+  - command:
+      # Guard against using old release names, URIs, and so on.
+      - grep -q     "deb http://deb.debian.org/debian/ $release main" $sources
+      - grep -q "deb-src http://deb.debian.org/debian/ $release main" $sources
+      # ...
+
+      # Save a copy to detect changes later and run apt update if needed.
+      - cp $sources $copy
+  # Primary
+  - line_in_file:
+      path: $sources
+      line: deb http://deb.debian.org/debian/ $release main contrib non-free non-free-firmware
+      pattern: deb http://deb.debian.org/debian/ $release main
+  # Primary (source)
+  - line_in_file:
+      path: $sources
+      line: deb-src http://deb.debian.org/debian/ $release main contrib non-free non-free-firmware
+      pattern: deb-src http://deb.debian.org/debian/ $release main
+  # ...
+  - script:
+      name: Run apt update if sources changed
+      contents: |
+        #!/bin/bash
+
+        diff $sources $copy
+        if [[ $? != 0 ]]; then
+          apt-get update
+        fi
+  - command:
+      - rm $copy
+vars:
+  sources: /etc/apt/sources.list
+  copy: /root/.sources.list.tmp
+  release: bookworm
+```
+
+This task checks to make sure that Apt source lines look as expected before modifying sources.list, updates the file as needed, and runs `apt-get update` if and only if the file changes. This code works on Debian 12 (bookworm) and will deliberately and safely fail on other versions in order to tell you that it's time to update your `release` variable.
+
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
 If these tools work well for you, great! Keep using them!
