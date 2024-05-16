@@ -11,6 +11,7 @@ use client::*;
 mod report;
 use report::*;
 
+/// The name of the key used for signing actions before they're sent from `sira` to `sira-client`.
 pub const ACTION_SIGNING_KEY: &str = "action";
 
 /// Runs a [Plan] on each of the [Plan]'s hosts in parallel.

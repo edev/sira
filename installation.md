@@ -1,4 +1,4 @@
-# Installing
+# Installing Sira
 
 Below are step-by-step instructions for installing Sira across both your control node and your managed nodes. The guide is long, but using the installer allows you to skip most steps. After initial reading, it should only take a minute or two per node with the installer or around 5-10 minutes per node (depending on your speed with the terminal) for manual installation.
 
