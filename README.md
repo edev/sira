@@ -2,6 +2,10 @@
 
 Sira (officially pronounced "SIGH-rah", but pronounce it however you wish) is a tool for managing small collections of Linux computers (including virtual machines). By focusing on small, simple deployments, Sira can favor ergonomics, readability, and obvious correctness over more advanced features. By only supporting Linux, Sira can integrate beautifully and natively into Linux workflows. For simple, Linux-focused networks, Sira aims to provide a transparent abstraction that makes automating system administration as simple as writing the commands in an SSH session or script.
 
+Power users and experienced system administrators will (hopefully) feel right at home using Sira. Basically, if you're comfortable using the terminal to administer your systems, the learning curve should be minimal.
+
+On the other hand, if you're more of a novice Linux user and you're reading about Sira, welcome! Please don't hesitate to give Sira a try. You won't find a one-liner to set up Samba, NFS, or Kerberos, but you'll certainly learn a ton by configuring them yourself. Plus, Sira itself is very simple, so you won't need to spend two weeks learning how to use it.
+
 ## Getting started
 
 To get a feel for Sira, keep reading below. Once you're ready to try it for yourself, work through the [installation guide](/installation.md) and return here once you're done.
