@@ -32,7 +32,7 @@ Sira supports a deliberately simple, minimal set of instructions, which Sira cal
 # Note that these processes are created directly and are not interpreted by a shell, so shell
 # features like ~ and | will not work. You can always invoke a shell, if you need one.
 - command:
-    - apt-get install -y qemu-system-x86
+    - apt-get install -y qemu-system-x86 snapd
     - snap install core
     - sudo -u alice bash -c "mkdir -p ~/.ssh"
 
@@ -90,13 +90,13 @@ Sira organizes lists of actions as **tasks**. Each task is a YAML document, mean
 name: Install system packages
 actions:
   - command:
-      - apt-get install $apt_packages
+      - apt-get install -y $apt_packages
       - snap install core
       - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - flatpak install --noninteractive flathub $flathub_bundles
 vars:
   # We'll make these much more readable a little later in this guide!
-  apt_packages: built-essential git qemu-system-x86
+  apt_packages: build-essential flatpak git qemu-system-x86 snapd
   flathub_bundles: com.discordapp.Discord com.vscodium.codium
 
 ---
@@ -205,15 +205,17 @@ Using a closely related feature, folded scalar syntax, we can clean up the packa
 name: Install system packages
 actions:
   - command: 
-      - apt-get install $apt_packages
+      - apt-get install -y $apt_packages
       - snap install core
       - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - flatpak install --noninteractive flathub $flathub_bundles
 vars:
   apt_packages: >-
-    built-essential
+    build-essential
+    flatpak
     git
     qemu-system-x86
+    snapd
   flathub_bundles: >-
     com.discordapp.Discord
     com.vscodium.codium
