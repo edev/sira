@@ -1,6 +1,6 @@
 # Sira: Simple Remote Administration
 
-Sira (officially pronounced "SIGH-rah", but pronounce it however you wish) is a tool for managing small collections of Linux computers (including virtual machines). By focusing on small, simple deployments, Sira can favor ergonomics, readability, and obvious correctness over more advanced features. By only supporting Linux, Sira can integrate beautifully and natively into Linux workflows. For simple, Linux-focused networks, Sira aims to provide a transparent abstraction that makes automating system administration as simple as writing the commands in an SSH session or script.
+Sira (officially pronounced "SIGH-rah", but pronounce it however you wish) is a tool for managing small collections of Linux computers (including virtual machines). By focusing on small, simple deployments, Sira can favor ergonomics, readability, and obvious correctness over more advanced features. By only supporting Linux, Sira can integrate beautifully and natively into Linux workflows. For simple, Linux-focused networks, Sira aims to make automating system administration across the whole network as simple as writing the commands in an SSH session or script. Sira tries to be transparent: it's designed never to be another, quirky abstraction layer you have to think about.
 
 Power users and experienced system administrators will (hopefully) feel right at home using Sira. Basically, if you're comfortable using the terminal to administer your systems, the learning curve should be minimal.
 
