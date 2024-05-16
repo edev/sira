@@ -6,7 +6,7 @@ Sira (officially pronounced "SIGH-rah", but pronounce it however you wish) is a 
 
 To get a feel for Sira, keep reading below. Once you're ready to try it for yourself, work through the [installation guide](/installation.md) and return here once you're done.
 
-Sira is split into a control node application called `sira` and a client application called `sira-client`. You pass `sira` a list of files containing instructions, and it connects to nodes via SSH and invokes `sira-client` to execute those instructions. There is no always-on server, and you do not need to open any extra ports. In fact, the account that runs `sira-client` is far better secured than a typical administrator's account! (For details, see [security.md](/security.md).)
+Sira is split into a control node application called `sira` and a client application called `sira-client`. You pass `sira` a list of files containing instructions, and it connects to nodes via SSH and invokes `sira-client` to execute those instructions. There is no always-on server, and you do not need to open any extra ports. In fact, in the default configuration, the account that runs `sira-client` is far better secured than a typical administrator's account! (For details, see [security.md](/security.md).)
 
 ### Installing `sira-client` on a managed node
 
@@ -14,7 +14,7 @@ After working through the [installation guide](/installation.md), preparing a ma
 
 ```bash
 # On the managed node (instructions vary by distribution).
-sudo useradd <sira-user>
+sudo useradd [options] <sira-user>
 
 # On the control node. This should only take a few seconds.
 sira-install <sira-user> <managed-node-admin>@<managed-node>
@@ -139,23 +139,45 @@ vars:
 
 ### Manifests
 
-Sira groups task files into **manifests** that associate task files with managed nodes (i.e. hosts). Just like tasks, you can write multiple manifests in a manifest file or stick to one per file. Note that you cannot place manifests and tasks in the same file.
+Sira groups task files into **manifests** that associate task files with managed nodes (i.e. hosts). Just like tasks, you can write multiple manifests in a manifest file or stick to one per file. Note that you cannot place manifests and tasks in the same file. Example:
 
 ```yaml
 ---
 name: debian-base
 hosts:
-  - alice
+  - alice-laptop
 include:
   # Paths here are relative to the manifest file.
   - tasks/debian-base.yaml
 vars:
+  # A "configure Grub" task might insert this value into /etc/default/grub.
   grub_timeout: 10
 ```
 
-### Variables
+### Run Sira
 
-As the examples above demonstrated, manifests and tasks can define variables for use in actions by using the `vars` key. When `sira` is about to run an action on a managed node, it compiles a copy of the action to send to `sira-client` as YAML. As part of this process, it substitutes variables into all fields of all actions except Booleans, e.g. `indent` for `line_in_file` and `overwrite` for `upload`. (This is due to a minor technical limitation; if there's demand, applying variables to Boolean fields can be implemented.)
+Once you're ready, running Sira is as simple as adding the relevant SSH keys to your agent and passing your manifest files to `sira`, e.g.:
+
+```bash
+# Add client access key
+ssh-add ~/.ssh/sira
+
+# Add the action signing key, if installed
+ssh-add /etc/sira/keys/action
+
+# Run Sira
+sira <manifest-file> ...
+```
+
+Sira runs each manifest, task, and action in order; there are no reordering mechanics or dependency graphs. For each managed node, Sira simply runs through its actions as quickly as possible. It *does not* wait for all nodes to complete an instruction before proceeding to the next. If you wish to apply checkpoints, you can write multiple manifest files and call `sira` several times, e.g. in a script (as discussed above).
+
+If a managed node is unreachable, Sira will ignore it and continue processing other nodes. At the end of the run, `sira` will exit with a `0` exit code signaling success.
+
+If an action fails on any managed node, that node aborts, and the other nodes continue processing. Once the run is complete, `sira` will exit with a non-zero exit code.
+
+### Advanced feature: Variables
+
+As the examples above demonstrated, manifests and tasks can define variables for use in actions by using the `vars` key. When `sira` is about to run an action on a managed node, it compiles a copy of the action to send to `sira-client` as YAML. As part of this process, it substitutes variables into all fields except Booleans, e.g. `indent` for `line_in_file` and `overwrite` for `upload`. (This is due to a minor technical limitation; if there's demand, applying variables to Boolean fields can be implemented.)
 
 The process is intentionally simple, both so that you don't have to think about complex mechanics and so that Sira can remain agnostic of shell languages, etc. Right before sending an action to a managed node:
 
@@ -174,9 +196,9 @@ For maximum flexibility, there is no error detection when substituting variables
 
 ### Advanced feature: harness the full power of YAML
 
-The choice to use YAML for Sira instead of a more ubiquitous language like JSON is intentional: YAML is a very powerful language with features that can augment your manifests and tasks. (JSON is actually a subset of YAML, so you can technically write JSON instead, if you are sufficiently determined. The docs do not cover this use case.) The `script` action actually depends on an advanced feature of YAML called block scalar syntax, as noted in the examples above.
+The choice to use YAML for Sira instead of a more ubiquitous language like JSON is intentional: YAML is a very powerful language with features that can augment your manifests and tasks. (JSON is a subset of YAML, so you can technically write JSON instead, if you are sufficiently determined. The docs do not cover this use case.) The `script` action actually depends on an advanced feature of YAML called block scalar syntax, as noted in the examples above.
 
-Using a closely related feature, folded scalar syntax, we can clean up the package lists in the examples above:
+Using a closely related feature, folded scalar syntax, we can clean up the package lists from the examples above:
 
 ```yaml
 ---
@@ -201,7 +223,7 @@ If you find a creative way to harness the power of YAML to improve your manifest
 
 ### Advanced feature: use Sira in shell scripts
 
-`sira` works like a standard terminal application: it takes all its inputs as command-line arguments, it keeps running in the foreground until all instructions are complete, it aborts if an action returns a non-zero exit status, and it exits with a non-zero status in the event of a failure. Thus, `sira` integrates cleanly with shell scripts. You can script complex sequences of actions easily, e.g.:
+`sira` works like a standard terminal application. It takes all its inputs as command-line arguments. It keeps running in the foreground until all instructions are complete. It aborts if an action returns a non-zero exit status, and it exits with a non-zero status in the event of a failure. Thus, `sira` integrates cleanly with shell scripts. You can script complex sequences of actions easily, e.g.:
 
 ```bash
 #!/bin/bash
@@ -213,7 +235,7 @@ scp server:files-to-distribute files
 sira distribute-files.yaml
 ```
 
-### Cryptographically sign manifests, tasks, and actions
+### Advanced feature: Cryptographically sign manifests, tasks, and actions
 
 Sira supports signing manifest and task files as well as actions sent to `sira-client`. If these keys are installed, `sira` will refuse to execute unsigned or improperly signed manifest and task files, and `sira-client` will refuse to execute unsigned or improperly signed actions. See [security.md](/security.md) for details on how this works and [installation.md](/installation.md) for instructions on setting this up. For most users, `sira-install` handles this automatically.
 
@@ -223,32 +245,11 @@ If you are using cryptographic signing, you can sign your manifest and task file
 ssh-keygen -Y sign -n sira -f <path-to-key> <file-name> ...
 ```
 
-### Run Sira
-
-Once you're ready, running Sira is as simple as adding the relevant SSH keys to your agent and passing your manifest files to `sira`, e.g.:
-
-```bash
-# Add client access key
-ssh-add ~/.ssh/sira
-
-# Add the action signing key, if installed
-ssh-add /etc/sira/keys/action
-
-# Run Sira
-sira <manifest-file> ...
-```
-
-Sira runs each manifest, task, and action in order; there are no reordering mechanics or dependency graphs. For each managed node, Sira simply runs through its actions as quickly as possible. It *does not* wait for all nodes to complete an instruction before proceeding to the next. If you wish to apply checkpoints, you can write multiple manifest files and call `sira` several times, e.g. in a script (as discussed above).
-
-If a managed node is unreachable, Sira will ignore it and continue processing other nodes. At the end of the run, `sira` will exit with a `0` exit code signaling success.
-
-If an action fails on any managed node, that node aborts, and the other nodes continue processing. Once the run is complete, `sira` will exit with a non-zero exit code.
-
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
 
 If these tools work well for you, great! Keep using them!
 
-These tools are very sophisticated and very complex. They are designed for use cases as large as enterprise deployments, and their feature sets reflect this. For simple deployments such as homelabs and personal networks, this compexity is often unnecessary. Sira is designed with small-scale, simpler deployments in mind. As a result, Sira makes different choices and different trade-offs.
+These tools are very sophisticated and very complex. They are designed for use cases as large as enterprise deployments, and their feature sets reflect this. For simple deployments such as homelabs and personal networks, this complexity is often unnecessary. Sira is designed with small-scale, simpler deployments in mind. As a result, Sira makes different choices and different trade-offs.
 
 ## Guiding principles
 
