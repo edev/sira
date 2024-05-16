@@ -321,11 +321,11 @@ fn control_node(sira_user: &str, destination: &str) {
         let command = format!("./{INSTALLER_BIN}");
         let args = [
             "-t",
-            &destination,
+            destination,
             "sudo",
             &command,
             "--managed-node",
-            &sira_user,
+            sira_user,
         ];
         client::run("ssh", &args).expect("error running installer on managed node");
     }
