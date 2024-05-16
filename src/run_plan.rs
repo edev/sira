@@ -4,6 +4,8 @@ use crate::core::plan::HostPlanIntoIter;
 use crate::core::Action;
 use crate::core::Plan;
 use crate::crypto::{self, SigningOutcome};
+use std::panic;
+use tokio::task::JoinSet;
 
 mod client;
 use client::*;
@@ -36,7 +38,11 @@ pub async fn run_plan(plan: Plan) -> Result<(), Vec<(String, anyhow::Error)>> {
 }
 
 /// Provides dependency injection for unit-testing [run_plan] without SSH, stdout, or stderr.
-async fn _run_plan<C: ClientInterface, CM: ManageClient<C> + Clone, R: Report + Clone>(
+async fn _run_plan<
+    C: ClientInterface + Send,
+    CM: ManageClient<C> + Clone + Send + 'static,
+    R: Report + Clone + Send + 'static,
+>(
     plan: Plan,
     connection_manager: CM,
     reporter: R,
@@ -44,24 +50,30 @@ async fn _run_plan<C: ClientInterface, CM: ManageClient<C> + Clone, R: Report + 
     // Holds tuples of (host, future) where future is the future for the async task that's running
     // the plan on host. We want to spawn all tasks without awaiting and store the futures so we
     // can await them all afterward.
-    let mut run_futures = Vec::new();
+    let mut host_plans = JoinSet::new();
 
     for host in plan.hosts() {
         let host_plan = plan.plan_for(&host).unwrap().into_iter();
-        run_futures.push((
-            host.clone(),
-            run_host_plan(
-                host,
-                host_plan,
-                connection_manager.clone(),
-                reporter.clone(),
-            ),
-        ));
+        let cm = connection_manager.clone();
+        let rep = reporter.clone();
+        let _ = host_plans.spawn(async move {
+            let status = run_host_plan(host.clone(), host_plan, cm, rep).await;
+            (host, status)
+        });
     }
 
     let mut errors = Vec::new();
-    for (host, future) in run_futures {
-        if let Err(err) = future.await {
+    while let Some(join_result) = host_plans.join_next().await {
+        if let Err(err) = join_result {
+            if err.is_panic() {
+                panic::resume_unwind(err.into_panic());
+            } else {
+                panic!("Tokio task failed to execute to completion; this should be impossible");
+            }
+        }
+
+        let (host, status) = join_result.unwrap();
+        if let Err(err) = status {
             errors.push((host, err));
         }
     }
