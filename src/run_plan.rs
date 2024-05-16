@@ -105,6 +105,8 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
             }
         }
 
+        reporter.starting(&host, &action);
+
         use Action::*;
         let output = match &action {
             Command(_) => client.command(&yaml, sign(&yaml)?).await?,
@@ -494,6 +496,10 @@ mod tests {
 
             #[async_trait]
             impl Report for Arc<TestReporter> {
+                fn starting(&mut self, _host: &str, _action: &Action) {
+                    // TODO Test this if we keep it.
+                }
+
                 // Performs a simulated report, and then optionally returns an expected failure.
                 async fn report(
                     &mut self,

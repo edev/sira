@@ -12,6 +12,7 @@
 //!
 //! [Action]: crate::core::Action
 
+use crate::core::Action;
 use async_trait::async_trait;
 use std::io::{self, Write};
 use std::ops::DerefMut;
@@ -23,6 +24,10 @@ use tokio::task;
 /// [Action]: crate::core::Action
 #[async_trait]
 pub trait Report {
+    /// Reports that an action is about to commence.
+    fn starting(&mut self, host: &str, action: &Action);
+
+    /// Reports the outcome of an action.
     async fn report(&mut self, host: &str, yaml: String, output: &Output) -> io::Result<()>;
 }
 
@@ -32,6 +37,25 @@ pub struct Reporter;
 
 #[async_trait]
 impl Report for Reporter {
+    fn starting(&mut self, host: &str, action: &Action) {
+        // This trait method is an experimental addition. The implementation below might provide a
+        // good basis for a rewrite of Reporter::report(), as well. There are refactoring
+        // opportunities in the code below, and that's intentional. At the current stage, this code
+        // is meant as a lightly hand-verified design prototype. In time, a more substantial UI
+        // rewrite can incorporate lessons learned.
+        use Action::*;
+        let action = match action {
+            Command(vec) => {
+                // It's unlikely that vec has more than one element, but that's not our concern.
+                format!("command: {}", vec.join(";"))
+            }
+            LineInFile { path, .. } => format!("line_in_file: {path}"),
+            Script { name, .. } => format!("script: {name}"),
+            Upload { from, to, .. } => format!("upload: {from} -> {to}"),
+        };
+        println!("[{host}] Starting {action}");
+    }
+
     async fn report(&mut self, host: &str, yaml: String, output: &Output) -> io::Result<()> {
         // Lock stdout and stderr for sane output ordering. For this same reason, we do not use
         // Tokio's async IO, which provides no locking mechanisms.
