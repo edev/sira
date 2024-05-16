@@ -172,8 +172,11 @@ mod tests {
 
             // Returns an Output value with a custom exit code.
             pub fn error_code(code: i32) -> Output {
-                // This is the only way I know of to construct an ExitCode value representing a Unix
-                // exit code.
+                // The only I know to construct an ExitStatus value whose code() method returns
+                // a Some value is to actually run a child process. The following assertion
+                // illustrates the problem:
+                assert!(ExitStatus::from_raw(code).code().is_none());
+
                 let output = Command::new("/bin/sh")
                     .arg("-c")
                     .arg(format!("return {code}"))
