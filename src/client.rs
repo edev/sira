@@ -130,6 +130,14 @@ pub fn run<C: AsRef<OsStr>, A: AsRef<OsStr>>(cmd: C, args: &[A]) -> anyhow::Resu
     Ok(())
 }
 
+/// Invokes the `whoami` system utility.
+///
+/// Memorizes the identity on first run and returns the cached result on all subsequent calls.
+///
+/// # Panics
+///
+/// Panics if `whoami` cannot be called, `whoami` returns an error, or the returned user name
+/// is not UTF-8.
 pub fn whoami() -> &'static str {
     static COMPUTED: OnceLock<String> = OnceLock::new();
 

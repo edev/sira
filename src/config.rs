@@ -1,3 +1,5 @@
+//! Provides access to Sira's configuration files, e.g. `/etc/sira`.
+
 use std::path::PathBuf;
 
 /// Returns a [PathBuf] to the directory where Sira's configuration should live.
