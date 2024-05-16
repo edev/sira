@@ -204,7 +204,7 @@ Using a closely related feature, folded scalar syntax, we can clean up the packa
 ---
 name: Install system packages
 actions:
-  - command: 
+  - command:
       - apt-get install -y $apt_packages
       - snap install core
       - flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -245,6 +245,55 @@ If you are using cryptographic signing, you can sign your manifest and task file
 
 ```bash
 ssh-keygen -Y sign -n sira -f <path-to-key> <file-name> ...
+```
+
+### Advanced technique: use task files as plugins
+
+Sira deliberately lacks support for plugins, extensions, and so on. However, you can achieve similar effects (code reuse and abstraction) by writing task files that incorporate well-documented manifest variables.
+
+For example, if you have a standard set of Git configuration options that you set across many users, you might write a file `tasks/configure_git.yaml` to encapsulate these actions:
+
+```yaml
+# Configures Git for a single user.
+#
+# Expected manifest variables:
+# user: the Linux user name for whom Git will be configured.
+# name: the value to set as Git's user.name.
+# email: The value to set as Git's user.email.
+
+---
+name: Install Git
+actions:
+  - command:
+      - apt install -y git
+      - sudo -u "$user" git config --global user.name "$name"
+      - sudo -u "$user" git config --global user.email "$email"
+```
+
+You can then use this plugin-like (or function-like) task file in your manifest files, setting the appropriate variables each time you include it:
+
+```yaml
+---
+name: Configure Git for alice
+hosts:
+  - alice-laptop
+include:
+  - tasks/configure_git.yaml
+vars:
+  user: alice
+  name: Alice Realperson
+  email: alice@example.com
+
+---
+name: Configure Git for alice-work
+hosts:
+  - alice-laptop
+include:
+  - tasks/configure_git.yaml
+vars:
+  user: alice-work
+  name: Alice Realperson
+  email: alice@example.com
 ```
 
 ## Why not use Ansible, Chef, Puppet, Salt, etc.?
