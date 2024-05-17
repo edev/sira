@@ -47,9 +47,6 @@ async fn _run_plan<
     connection_manager: CM,
     reporter: R,
 ) -> Result<(), Vec<(String, anyhow::Error)>> {
-    // Holds tuples of (host, future) where future is the future for the async task that's running
-    // the plan on host. We want to spawn all tasks without awaiting and store the futures so we
-    // can await them all afterward.
     let mut host_plans = JoinSet::new();
 
     for host in plan.hosts() {
