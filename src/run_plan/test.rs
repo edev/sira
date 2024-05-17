@@ -336,14 +336,17 @@ pub mod fixtures {
         // after the code under test.
         #[derive(Debug, Default)]
         pub struct TestReporter {
-            // The shared stdout writer.
-            stdout: Mutex<Vec<u8>>,
+            // Whether the Report::report method should return an error.
+            should_fail: Mutex<bool>,
+
+            // Whether the Report::starting method should return an error.
+            should_fail_to_start: Mutex<bool>,
 
             // The shared stderr writer.
             stderr: Mutex<Vec<u8>>,
 
-            // Whether the Report::report method should return an error.
-            should_fail: Mutex<bool>,
+            // The shared stdout writer.
+            stdout: Mutex<Vec<u8>>,
         }
 
         impl TestReporter {
@@ -352,11 +355,8 @@ pub mod fixtures {
                     stdout: Mutex::new(vec![]),
                     stderr: Mutex::new(vec![]),
                     should_fail: Mutex::new(false),
+                    should_fail_to_start: Mutex::new(false),
                 })
-            }
-
-            pub fn stdout(&self) -> MutexGuard<Vec<u8>> {
-                self.stdout.lock().unwrap()
             }
 
             // Instructs this TestReporter to always fail, i.e. return an error from the
@@ -364,13 +364,29 @@ pub mod fixtures {
             pub fn fail(&self) {
                 *self.should_fail.lock().unwrap() = true;
             }
+
+            // Instructs this TestReporter to always fail to start, i.e. return an error from the
+            // Report::starting method.
+            pub fn fail_to_start(&self) {
+                *self.should_fail_to_start.lock().unwrap() = true;
+            }
+
+            pub fn stdout(&self) -> MutexGuard<Vec<u8>> {
+                self.stdout.lock().unwrap()
+            }
         }
 
         #[async_trait]
         impl Report for Arc<TestReporter> {
-            async fn starting(&mut self, _host: &str, _action: &Action) -> io::Result<()> {
-                // TODO Test this if we keep it.
-                Ok(())
+            // Performs a simulated start notice, and then optionally returns an expected failure.
+            async fn starting(&mut self, host: &str, action: &Action) -> io::Result<()> {
+                let result = _starting(self.stdout.lock().unwrap(), host, action);
+
+                if *self.should_fail_to_start.lock().unwrap() {
+                    Err(io::Error::other("expected"))
+                } else {
+                    result
+                }
             }
 
             // Performs a simulated report, and then optionally returns an expected failure.
@@ -519,6 +535,26 @@ mod run_host_plan {
         );
     }
 
+    mod starting {
+        use super::*;
+
+        #[tokio::test]
+        async fn reports_starting_action() {
+            let fixture = Fixture::new();
+            fixture.run_host_plan().await.unwrap();
+            assert!(String::from_utf8(fixture.reporter.stdout().to_vec())
+                .unwrap()
+                .contains("Starting "));
+        }
+
+        #[tokio::test]
+        async fn returns_error_if_reporting_fails() {
+            let fixture = Fixture::new();
+            fixture.reporter.fail_to_start();
+            assert!(fixture.run_host_plan().await.is_err());
+        }
+    }
+
     mod command {
         use super::*;
 
@@ -537,6 +573,38 @@ mod run_host_plan {
             Fixture::test_client_returns_error(
                 "command",
                 Action::Command(vec!["send_it".to_string()]),
+                true,
+            )
+            .await
+        }
+    }
+
+    mod script {
+        use super::*;
+
+        #[tokio::test]
+        async fn calls_client_script() {
+            Fixture::test_calls_client(
+                "script",
+                Action::Script {
+                    name: "Run a script".to_string(),
+                    user: "alice".to_string(),
+                    contents: "touch /tmp/alice_was_here".to_string(),
+                },
+                true,
+            )
+            .await
+        }
+
+        #[tokio::test]
+        async fn returns_error_on_failure() {
+            Fixture::test_client_returns_error(
+                "script",
+                Action::Script {
+                    name: "Run a script".to_string(),
+                    user: "alice".to_string(),
+                    contents: "touch /tmp/alice_was_here".to_string(),
+                },
                 true,
             )
             .await
@@ -617,20 +685,24 @@ mod run_host_plan {
         }
     }
 
-    #[tokio::test]
-    async fn reports_action() {
-        let fixture = Fixture::new();
-        fixture.run_host_plan().await.unwrap();
-        assert!(String::from_utf8(fixture.reporter.stdout().to_vec())
-            .unwrap()
-            .contains("Completed "));
-    }
+    mod report {
+        use super::*;
 
-    #[tokio::test]
-    async fn returns_error_if_reporting_fails() {
-        let fixture = Fixture::new();
-        fixture.reporter.fail();
-        assert!(fixture.run_host_plan().await.is_err());
+        #[tokio::test]
+        async fn reports_action() {
+            let fixture = Fixture::new();
+            fixture.run_host_plan().await.unwrap();
+            assert!(String::from_utf8(fixture.reporter.stdout().to_vec())
+                .unwrap()
+                .contains("Completed "));
+        }
+
+        #[tokio::test]
+        async fn returns_error_if_reporting_fails() {
+            let fixture = Fixture::new();
+            fixture.reporter.fail();
+            assert!(fixture.run_host_plan().await.is_err());
+        }
     }
 
     #[tokio::test]
