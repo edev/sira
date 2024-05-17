@@ -42,7 +42,7 @@ impl Reporter {
         match action {
             Command(vec) => {
                 // It's unlikely that vec has more than one element, but that's not our concern.
-                format!("command: {}", vec.join(";"))
+                format!("command: {}", vec.join("; "))
             }
             LineInFile { line, path, .. } => format!("line_in_file ({path}): {line}"),
             Script { name, user, .. } => format!("script ({user}): {name}"),
@@ -146,6 +146,78 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod reporter {
+        use super::*;
+
+        mod title {
+            use super::*;
+            use Action::*;
+
+            #[test]
+            fn command() {
+                assert_eq!("command: ", Reporter::title(&Command(vec![])));
+
+                assert_eq!(
+                    "command: foo bar",
+                    Reporter::title(&Command(vec!["foo bar".to_string()])),
+                );
+
+                assert_eq!(
+                    "command: foo bar; baz foo; bar baz",
+                    Reporter::title(&Command(vec![
+                        "foo bar".to_string(),
+                        "baz foo".to_string(),
+                        "bar baz".to_string(),
+                    ])),
+                );
+            }
+
+            #[test]
+            fn line_in_file() {
+                assert_eq!(
+                    "line_in_file (/etc/shadow): Mwahahahaha!",
+                    Reporter::title(&LineInFile {
+                        path: "/etc/shadow".to_string(),
+                        line: "Mwahahahaha!".to_string(),
+                        pattern: Some("pattern".to_string()),
+                        after: Some("after".to_string()),
+                        indent: true,
+                    }),
+                );
+            }
+
+            #[test]
+            fn script() {
+                assert_eq!(
+                    "script (alice): Set up Alice's user account",
+                    Reporter::title(&Script {
+                        name: "Set up Alice's user account".to_string(),
+                        user: "alice".to_string(),
+                        contents: "#!/bin/bash\n\
+                            \n\
+                            echo Eh, maybe later.\n"
+                            .to_string(),
+                    }),
+                );
+            }
+
+            #[test]
+            fn upload() {
+                assert_eq!(
+                    "upload: from_path -> to_path",
+                    Reporter::title(&Upload {
+                        from: "from_path".to_string(),
+                        to: "to_path".to_string(),
+                        user: "alice".to_string(),
+                        group: "alice".to_string(),
+                        permissions: Some("644".to_string()),
+                        overwrite: true,
+                    }),
+                );
+            }
+        }
+    }
 
     mod _report {
         use super::*;
