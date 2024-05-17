@@ -1,74 +1,70 @@
 use super::*;
 
-mod reporter {
+mod title {
     use super::*;
+    use Action::*;
 
-    mod title {
-        use super::*;
-        use Action::*;
+    #[test]
+    fn command() {
+        assert_eq!("command: ", title(&Command(vec![])));
 
-        #[test]
-        fn command() {
-            assert_eq!("command: ", title(&Command(vec![])));
+        assert_eq!(
+            "command: foo bar",
+            title(&Command(vec!["foo bar".to_string()])),
+        );
 
-            assert_eq!(
-                "command: foo bar",
-                title(&Command(vec!["foo bar".to_string()])),
-            );
+        assert_eq!(
+            "command: foo bar; baz foo; bar baz",
+            title(&Command(vec![
+                "foo bar".to_string(),
+                "baz foo".to_string(),
+                "bar baz".to_string(),
+            ])),
+        );
+    }
 
-            assert_eq!(
-                "command: foo bar; baz foo; bar baz",
-                title(&Command(vec![
-                    "foo bar".to_string(),
-                    "baz foo".to_string(),
-                    "bar baz".to_string(),
-                ])),
-            );
-        }
+    #[test]
+    fn line_in_file() {
+        assert_eq!(
+            "line_in_file (/etc/shadow): Mwahahahaha!",
+            title(&LineInFile {
+                path: "/etc/shadow".to_string(),
+                line: "Mwahahahaha!".to_string(),
+                pattern: Some("pattern".to_string()),
+                after: Some("after".to_string()),
+                indent: true,
+            }),
+        );
+    }
 
-        #[test]
-        fn line_in_file() {
-            assert_eq!(
-                "line_in_file (/etc/shadow): Mwahahahaha!",
-                title(&LineInFile {
-                    path: "/etc/shadow".to_string(),
-                    line: "Mwahahahaha!".to_string(),
-                    pattern: Some("pattern".to_string()),
-                    after: Some("after".to_string()),
-                    indent: true,
-                }),
-            );
-        }
+    #[test]
+    fn script() {
+        assert_eq!(
+            "script (alice): Set up Alice's user account",
+            title(&Script {
+                name: "Set up Alice's user account".to_string(),
+                user: "alice".to_string(),
+                contents: "#!/bin/bash\n\
+                    \n\
+                    echo Eh, maybe later.\n"
+                    .to_string(),
+            }),
+        );
+    }
 
-        #[test]
-        fn script() {
-            assert_eq!(
-                "script (alice): Set up Alice's user account",
-                title(&Script {
-                    name: "Set up Alice's user account".to_string(),
-                    user: "alice".to_string(),
-                    contents: "#!/bin/bash\n\
-                        \n\
-                        echo Eh, maybe later.\n"
-                        .to_string(),
-                }),
-            );
-        }
-
-        #[test]
-        fn upload() {
-            assert_eq!(
-                "upload: from_path -> to_path",
-                title(&Upload {
-                    from: "from_path".to_string(),
-                    to: "to_path".to_string(),
-                    user: "alice".to_string(),
-                    group: "alice".to_string(),
-                    permissions: Some("644".to_string()),
-                    overwrite: true,
-                }),
-            );
-        }
+    #[test]
+    fn upload() {
+        assert_eq!(
+            "upload: from_path -> to_path",
+            title(&Upload {
+                from: "from_path".to_string(),
+                to: "to_path".to_string(),
+                user: "alice".to_string(),
+                group: "alice".to_string(),
+                permissions: Some("644".to_string()),
+                overwrite: true,
+            }),
+        );
     }
 }
 
