@@ -26,7 +26,7 @@ use tokio::task;
 #[async_trait]
 pub trait Report {
     /// Reports that an action is about to commence.
-    fn starting(&mut self, host: &str, action: &Action);
+    async fn starting(&mut self, host: &str, action: &Action) -> io::Result<()>;
 
     /// Reports the outcome of an action.
     async fn report(&mut self, host: &str, action: &Action, output: &Output) -> io::Result<()>;
@@ -36,32 +36,11 @@ pub trait Report {
 #[derive(Clone, Debug)]
 pub struct Reporter;
 
-impl Reporter {
-    fn title(action: &Action) -> String {
-        use Action::*;
-        match action {
-            Command(vec) => {
-                // It's unlikely that vec has more than one element, but that's not our concern.
-                format!("command: {}", vec.join("; "))
-            }
-            LineInFile { line, path, .. } => format!("line_in_file ({path}): {line}"),
-            Script { name, user, .. } => format!("script ({user}): {name}"),
-            Upload { from, to, .. } => format!("upload: {from} -> {to}"),
-        }
-    }
-}
-
 #[async_trait]
 impl Report for Reporter {
-    fn starting(&mut self, host: &str, action: &Action) {
-        // This trait method is an experimental addition. The implementation below might provide a
-        // good basis for a rewrite of Reporter::report(), as well. There are refactoring
-        // opportunities in the code below, and that's intentional. At the current stage, this code
-        // is meant as a lightly hand-verified design prototype. In time, a more substantial UI
-        // rewrite can incorporate lessons learned.
-        let action = Self::title(action);
-        // Adding one extra space lines up "Starting" with "Completed" in the final output.
-        println!("[{host}] Starting  {action}");
+    async fn starting(&mut self, host: &str, action: &Action) -> io::Result<()> {
+        let mut stdout = io::stdout().lock();
+        task::block_in_place(move || _starting(&mut stdout, host, action))
     }
 
     async fn report(&mut self, host: &str, action: &Action, output: &Output) -> io::Result<()> {
@@ -76,9 +55,21 @@ impl Report for Reporter {
     }
 }
 
+/// Generates a one-line identifier for an [Action], suitable for use as its title in user output.
+pub fn title(action: &Action) -> String {
+    use Action::*;
+    match action {
+        Command(vec) => {
+            // It's unlikely that vec has more than one element, but that's not our concern.
+            format!("command: {}", vec.join("; "))
+        }
+        LineInFile { line, path, .. } => format!("line_in_file ({path}): {line}"),
+        Script { name, user, .. } => format!("script ({user}): {name}"),
+        Upload { from, to, .. } => format!("upload: {from} -> {to}"),
+    }
+}
+
 /// A testable method containing the logic for reporting the outcome of an [Action].
-///
-/// [Action]: crate::core::Action
 pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Target = ET>>(
     mut stdout: O,
     mut stderr: E,
@@ -101,11 +92,7 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
     }
 
     if output.status.success() {
-        writeln!(
-            &mut stdout,
-            "[{host}] Completed {}",
-            Reporter::title(action),
-        )?;
+        writeln!(&mut stdout, "[{host}] Completed {}", title(action))?;
     } else {
         writeln!(
             &mut stderr,
@@ -143,6 +130,21 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
     Ok(())
 }
 
+/// A testable method containing the logic for reporting that an [Action] is starting.
+pub fn _starting<OT: Write, O: DerefMut<Target = OT>>(
+    mut stdout: O,
+    host: &str,
+    action: &Action,
+) -> io::Result<()> {
+    let action = title(action);
+    writeln!(
+        &mut stdout,
+        // Adding one extra space lines up "Starting" with "Completed" in the final output.
+        "[{host}] Starting  {action}",
+        // Ex:    Completed {action}
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,16 +158,16 @@ mod tests {
 
             #[test]
             fn command() {
-                assert_eq!("command: ", Reporter::title(&Command(vec![])));
+                assert_eq!("command: ", title(&Command(vec![])));
 
                 assert_eq!(
                     "command: foo bar",
-                    Reporter::title(&Command(vec!["foo bar".to_string()])),
+                    title(&Command(vec!["foo bar".to_string()])),
                 );
 
                 assert_eq!(
                     "command: foo bar; baz foo; bar baz",
-                    Reporter::title(&Command(vec![
+                    title(&Command(vec![
                         "foo bar".to_string(),
                         "baz foo".to_string(),
                         "bar baz".to_string(),
@@ -177,7 +179,7 @@ mod tests {
             fn line_in_file() {
                 assert_eq!(
                     "line_in_file (/etc/shadow): Mwahahahaha!",
-                    Reporter::title(&LineInFile {
+                    title(&LineInFile {
                         path: "/etc/shadow".to_string(),
                         line: "Mwahahahaha!".to_string(),
                         pattern: Some("pattern".to_string()),
@@ -191,7 +193,7 @@ mod tests {
             fn script() {
                 assert_eq!(
                     "script (alice): Set up Alice's user account",
-                    Reporter::title(&Script {
+                    title(&Script {
                         name: "Set up Alice's user account".to_string(),
                         user: "alice".to_string(),
                         contents: "#!/bin/bash\n\
@@ -206,7 +208,7 @@ mod tests {
             fn upload() {
                 assert_eq!(
                     "upload: from_path -> to_path",
-                    Reporter::title(&Upload {
+                    title(&Upload {
                         from: "from_path".to_string(),
                         to: "to_path".to_string(),
                         user: "alice".to_string(),
@@ -509,6 +511,38 @@ mod tests {
         fn returns_ok() {
             let (result, _, _) = test_report("", &Action::Command(vec![]), success());
             assert!(result.is_ok());
+        }
+    }
+
+    mod _starting {
+        use super::*;
+
+        #[test]
+        fn works() {
+            let mut stdout: Vec<u8> = Vec::new();
+            let action = Action::Command(vec!["bob's your uncle".to_string()]);
+            let title = title(&action);
+            _starting(&mut stdout, "bob", &action).unwrap();
+            assert_eq!(
+                format!("[bob] Starting  {title}\n"),
+                String::from_utf8_lossy(&stdout),
+            );
+        }
+
+        #[test]
+        fn returns_error_on_failure() {
+            struct FailingWriter();
+            impl Write for FailingWriter {
+                fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                    Err(io::Error::other("failing as expected"))
+                }
+
+                fn flush(&mut self) -> io::Result<()> {
+                    Ok(())
+                }
+            }
+            let action = Action::Command(vec!["bob's your uncle".to_string()]);
+            assert!(_starting(&mut FailingWriter(), "bob", &action).is_err());
         }
     }
 }
