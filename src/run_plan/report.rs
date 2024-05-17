@@ -14,6 +14,7 @@
 
 use crate::core::Action;
 use async_trait::async_trait;
+use std::fmt::Display;
 use std::io::{self, Write};
 use std::ops::DerefMut;
 use std::process::Output;
@@ -28,12 +29,27 @@ pub trait Report {
     fn starting(&mut self, host: &str, action: &Action);
 
     /// Reports the outcome of an action.
-    async fn report(&mut self, host: &str, yaml: String, output: &Output) -> io::Result<()>;
+    async fn report(&mut self, host: &str, action: &Action, output: &Output) -> io::Result<()>;
 }
 
 /// The real, production-ready [Report] implementation. Uses the real stdout/stderr.
 #[derive(Clone, Debug)]
 pub struct Reporter;
+
+impl Reporter {
+    fn title(action: &Action) -> String {
+        use Action::*;
+        match action {
+            Command(vec) => {
+                // It's unlikely that vec has more than one element, but that's not our concern.
+                format!("command: {}", vec.join(";"))
+            }
+            LineInFile { line, path, .. } => format!("line_in_file ({path}): {line}"),
+            Script { name, user, .. } => format!("script ({user}): {name}"),
+            Upload { from, to, .. } => format!("upload: {from} -> {to}"),
+        }
+    }
+}
 
 #[async_trait]
 impl Report for Reporter {
@@ -43,20 +59,12 @@ impl Report for Reporter {
         // opportunities in the code below, and that's intentional. At the current stage, this code
         // is meant as a lightly hand-verified design prototype. In time, a more substantial UI
         // rewrite can incorporate lessons learned.
-        use Action::*;
-        let action = match action {
-            Command(vec) => {
-                // It's unlikely that vec has more than one element, but that's not our concern.
-                format!("command: {}", vec.join(";"))
-            }
-            LineInFile { path, .. } => format!("line_in_file: {path}"),
-            Script { name, .. } => format!("script: {name}"),
-            Upload { from, to, .. } => format!("upload: {from} -> {to}"),
-        };
-        println!("[{host}] Starting {action}");
+        let action = Self::title(action);
+        // Adding one extra space lines up "Starting" with "Completed" in the final output.
+        println!("[{host}] Starting  {action}");
     }
 
-    async fn report(&mut self, host: &str, yaml: String, output: &Output) -> io::Result<()> {
+    async fn report(&mut self, host: &str, action: &Action, output: &Output) -> io::Result<()> {
         // Lock stdout and stderr for sane output ordering. For this same reason, we do not use
         // Tokio's async IO, which provides no locking mechanisms.
         //
@@ -64,7 +72,7 @@ impl Report for Reporter {
         // across invocations, so we construct them here instead of storing them in the struct.
         let mut stdout = io::stdout().lock();
         let mut stderr = io::stderr().lock();
-        task::block_in_place(move || _report(&mut stdout, &mut stderr, host, yaml, output))
+        task::block_in_place(move || _report(&mut stdout, &mut stderr, host, action, output))
     }
 }
 
@@ -75,23 +83,48 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
     mut stdout: O,
     mut stderr: E,
     host: &str,
-    yaml: String,
+    action: &Action,
     output: &Output,
 ) -> io::Result<()> {
-    writeln!(stdout, "Ran action on {host}:\n{yaml}")?;
+    fn write_indented(
+        mut writer: impl Write,
+        header: impl Display,
+        content: impl AsRef<str>,
+    ) -> io::Result<()> {
+        //                1234
+        writeln!(writer, "    {header}")?;
+        for line in content.as_ref().lines() {
+            //                12345678
+            writeln!(writer, "        {line}")?;
+        }
+        Ok(())
+    }
+
+    if output.status.success() {
+        writeln!(
+            &mut stdout,
+            "[{host}] Completed {}",
+            Reporter::title(action),
+        )?;
+    } else {
+        writeln!(
+            &mut stderr,
+            "[{host}] Action failed. See below for details.",
+        )?;
+    }
 
     if !output.stdout.is_empty() {
-        writeln!(
-            stdout,
-            "Captured stdout:\n{}",
+        write_indented(
+            stdout.deref_mut(),
+            "Captured stdout:",
             String::from_utf8_lossy(&output.stdout),
         )?;
     }
 
     if !output.stderr.is_empty() {
-        writeln!(
-            stderr,
-            "Captured stderr:\n{}",
+        write_indented(
+            stderr.deref_mut(),
+            "Captured stderr:",
             String::from_utf8_lossy(&output.stderr),
         )?;
     }
@@ -101,11 +134,12 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
             Some(i) => format!("exit code {i}"),
             None => "error".to_string(),
         };
-        writeln!(stderr, "action exited with {exit_code_message}:\n{yaml}")?;
+        let yaml = serde_yaml::to_string(action).unwrap();
+        writeln!(
+            &mut stderr,
+            "Action exited with {exit_code_message}:\n{yaml}",
+        )?;
     }
-
-    // Put a space before the next command's report, since this one succeeded.
-    writeln!(stdout)?;
     Ok(())
 }
 
@@ -125,20 +159,12 @@ mod tests {
             // tests to examine afterward.
             pub fn test_report(
                 host: impl AsRef<str>,
-                yaml: impl Into<String>,
+                action: &Action,
                 output: Output,
             ) -> (io::Result<()>, Vec<u8>, Vec<u8>) {
                 let mut stdout = vec![];
                 let mut stderr = vec![];
-
-                let result = _report(
-                    &mut stdout,
-                    &mut stderr,
-                    host.as_ref(),
-                    yaml.into(),
-                    &output,
-                );
-
+                let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output);
                 (result, stdout, stderr)
             }
 
@@ -146,42 +172,26 @@ mod tests {
             // a particular string.
             pub fn test_report_stdout_failure(
                 host: impl AsRef<str>,
-                yaml: impl Into<String>,
+                action: &Action,
                 output: Output,
                 failing_line: impl Into<String>,
             ) -> (io::Result<()>, FailingWriter, Vec<u8>) {
                 let mut stdout = FailingWriter::new(failing_line.into());
                 let mut stderr = vec![];
-
-                let result = _report(
-                    &mut stdout,
-                    &mut stderr,
-                    host.as_ref(),
-                    yaml.into(),
-                    &output,
-                );
-
+                let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output);
                 (result, stdout, stderr)
             }
 
             // Same as test_report_stdout_failure but for stderr.
             pub fn test_report_stderr_failure(
                 host: impl AsRef<str>,
-                yaml: impl Into<String>,
+                action: &Action,
                 output: Output,
                 failing_line: impl Into<String>,
             ) -> (io::Result<()>, Vec<u8>, FailingWriter) {
                 let mut stdout = vec![];
                 let mut stderr = FailingWriter::new(failing_line.into());
-
-                let result = _report(
-                    &mut stdout,
-                    &mut stderr,
-                    host.as_ref(),
-                    yaml.into(),
-                    &output,
-                );
-
+                let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output);
                 (result, stdout, stderr)
             }
 
@@ -248,6 +258,7 @@ mod tests {
                     }
 
                     // Returns everything written to the writer so far.
+                    #[allow(dead_code)]
                     pub fn buffer(&self) -> &str {
                         &self.buffer
                     }
@@ -300,34 +311,43 @@ mod tests {
 
         #[test]
         fn reports_action() {
-            let (_, stdout, _) = test_report("bob", "some_yaml", success());
+            let (_, stdout, _) = test_report(
+                "bob",
+                &Action::Command(vec!["bash -c zsh".to_string()]),
+                success(),
+            );
             assert!(stdout
                 .as_slice()
-                .starts_with(b"Ran action on bob:\nsome_yaml"));
+                .starts_with(b"[bob] Completed command: bash -c zsh"));
         }
 
         #[test]
         fn returns_error_if_reporting_action_fails() {
-            let (result, _, _) =
-                test_report_stdout_failure("bob", "some_yaml", success(), "Ran action on bob");
+            let (result, _, _) = test_report_stdout_failure(
+                "bob",
+                &Action::Command(vec!["ignore".to_string()]),
+                success(),
+                "[bob] Completed command: ignore",
+            );
             assert!(result.is_err());
         }
 
         #[test]
         fn reports_stdout() {
-            const STDOUT: &str = "out";
+            const STDOUT: &str = "please report me";
             let mut output = success();
             output.stdout.extend(STDOUT.bytes());
 
-            let (_, stdout, _) = test_report("", "", output);
+            let (_, stdout, _) = test_report("", &Action::Command(vec![]), output);
 
             let stdout = String::from_utf8(stdout).unwrap();
-            assert!(stdout.contains("Captured stdout:\nout"));
+            assert!(stdout.contains("Captured stdout:"));
+            assert!(stdout.contains("please report me"));
         }
 
         #[test]
         fn skips_stdout_if_empty() {
-            let (_, stdout, _) = test_report("", "", success());
+            let (_, stdout, _) = test_report("", &Action::Command(vec![]), success());
             let stdout = String::from_utf8(stdout).unwrap();
             assert!(!stdout.contains("Captured stdout"));
         }
@@ -338,26 +358,31 @@ mod tests {
             let mut output = success();
             output.stdout.extend(STDOUT.bytes());
 
-            let (result, _, _) =
-                test_report_stdout_failure("bob", "some_yaml", output, "Captured stdout");
+            let (result, _, _) = test_report_stdout_failure(
+                "bob",
+                &Action::Command(vec![]),
+                output,
+                "Captured stdout",
+            );
             assert!(result.is_err());
         }
 
         #[test]
         fn reports_stderr() {
-            const STDERR: &str = "err";
+            const STDERR: &str = "please report me";
             let mut output = success();
             output.stderr.extend(STDERR.bytes());
 
-            let (_, _, stderr) = test_report("", "", output);
+            let (_, _, stderr) = test_report("", &Action::Command(vec![]), output);
 
             let stderr = String::from_utf8(stderr).unwrap();
-            assert!(stderr.contains("Captured stderr:\nerr"));
+            assert!(stderr.contains("Captured stderr:"));
+            assert!(stderr.contains("please report me"));
         }
 
         #[test]
         fn skips_stderr_if_empty() {
-            let (_, _, stderr) = test_report("", "", success());
+            let (_, _, stderr) = test_report("", &Action::Command(vec![]), success());
             let stderr = String::from_utf8(stderr).unwrap();
             assert!(!stderr.contains("Captured stderr"));
         }
@@ -368,53 +393,49 @@ mod tests {
             let mut output = success();
             output.stderr.extend(STDERR.bytes());
 
-            let (result, _, _) =
-                test_report_stderr_failure("bob", "some_yaml", output, "Captured stderr");
-            assert!(result.is_err());
-        }
-
-        #[test]
-        fn writes_trailing_newline() {
-            // yaml must be non-empty, otherwise the \n before yaml will incorrectly count as a
-            // trailing newline.
-            let (_, stdout, _) = test_report("", "yaml", success());
-            assert!(stdout.as_slice().ends_with(b"\n\n"));
-        }
-
-        #[test]
-        fn returns_error_if_writing_trailing_newline_fails() {
-            let (result, stdout, _) =
-                test_report_stdout_failure("bob", "some_yaml", success(), "\n\n");
-
-            // Make sure we actually got through the rest of the code.
-            assert!(stdout.buffer().contains("some_yaml"));
-
-            // Make sure we failed properly.
+            let (result, _, _) = test_report_stderr_failure(
+                "bob",
+                &Action::Command(vec![]),
+                output,
+                "Captured stderr",
+            );
             assert!(result.is_err());
         }
 
         #[test]
         fn reports_error_code_if_any() {
-            let (_, _, stderr) = test_report("", "llama", error_code(48));
-            assert!(stderr.ends_with(b"action exited with exit code 48:\nllama\n"));
+            let command = Action::Command(vec![]);
+            let (_, _, stderr) = test_report("bob", &command, error_code(48));
+            let stderr = String::from_utf8(stderr).unwrap();
+            assert!(stderr.contains("[bob] Action failed. See below for details."));
+            assert!(stderr.contains("Action exited with exit code 48:"));
+            assert!(stderr.contains(&serde_yaml::to_string(&command).unwrap()));
         }
 
         #[test]
         fn reports_error_message_if_no_error_code() {
-            let (_, _, stderr) = test_report("", "llama", no_error_code());
-            assert!(stderr.ends_with(b"action exited with error:\nllama\n"));
+            let command = Action::Command(vec![]);
+            let (_, _, stderr) = test_report("bob", &command, no_error_code());
+            let stderr = String::from_utf8(stderr).unwrap();
+            assert!(stderr.contains("[bob] Action failed. See below for details."));
+            assert!(stderr.contains("Action exited with error:"));
+            assert!(stderr.contains(&serde_yaml::to_string(&command).unwrap()));
         }
 
         #[test]
         fn returns_error_if_reporting_error_code_or_message_fails() {
-            let (result, _, _) =
-                test_report_stderr_failure("bob", "llama", no_error_code(), "action exited with");
+            let (result, _, _) = test_report_stderr_failure(
+                "bob",
+                &Action::Command(vec![]),
+                no_error_code(),
+                "[bob] Action failed.",
+            );
             assert!(result.is_err());
         }
 
         #[test]
         fn returns_ok() {
-            let (result, _, _) = test_report("", "", success());
+            let (result, _, _) = test_report("", &Action::Command(vec![]), success());
             assert!(result.is_ok());
         }
     }

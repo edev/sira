@@ -115,7 +115,7 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
             Upload { from, .. } => client.upload(from, &yaml, sign(&yaml)?).await?,
         };
 
-        reporter.report(&host, yaml, &output).await?;
+        reporter.report(&host, &action, &output).await?;
 
         if !output.status.success() {
             break;
@@ -504,14 +504,14 @@ mod tests {
                 async fn report(
                     &mut self,
                     host: &str,
-                    yaml: String,
+                    action: &Action,
                     output: &Output,
                 ) -> io::Result<()> {
                     let result = _report(
                         self.stdout.lock().unwrap(),
                         self.stderr.lock().unwrap(),
                         host,
-                        yaml,
+                        action,
                         output,
                     );
 
@@ -755,7 +755,7 @@ mod tests {
             fixture.run_host_plan().await.unwrap();
             assert!(String::from_utf8(fixture.reporter.stdout().to_vec())
                 .unwrap()
-                .contains("Ran action on"));
+                .contains("Completed "));
         }
 
         #[tokio::test]
