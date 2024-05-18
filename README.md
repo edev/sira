@@ -17,10 +17,10 @@ Sira is split into a control node application called `sira` and a client applica
 After working through the [installation guide](/installation.md), preparing a managed node to run Sira is as simple as:
 
 ```bash
-# On the managed node (instructions vary by distribution).
-sudo useradd [options] <sira-user>
+# Add the Sira user to the managed node. Also, store the managed node's SSH fingerprint.
+ssh -t <managed-node-admin>@<managed-node> sudo useradd [options] <sira-user>
 
-# On the control node. This should only take a few seconds.
+# Install Sira on the managed node. On first run, sets up the control node, too.
 sira-install <sira-user> <managed-node-admin>@<managed-node>
 ```
 

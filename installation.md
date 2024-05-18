@@ -32,7 +32,8 @@ $ cargo install sira
 ## Automatic installation (recommended)
 
 For each managed node:
-1. Create the Sira user on the managed node. Since different distributions handle account creation slightly differently, the installer does not automate this, and we do not provide instructions here. This user needs no special permissions or configuration of any kind: the more bare-bones the account, the better. Do not configure key-based SSH login, as you will do this later.
+1. Ensure that the control node user has an approved SSH fingerprint for the managed node. The easiest way to do this is simply to SSH from the control node user to the managed node admin in preparation for the next step.
+1. Create the Sira user on the managed node. Since different distributions handle account creation slightly differently, the installer does not automate this, and we do not provide instructions here. The Sira user needs no special permissions or configuration of any kind: the more bare-bones the account, the better. Do not configure key-based SSH login, as the installer will do this for you.
 
     The Sira user should be a separate account used only for Sira, for two reasons. First, this is best practice in general. Second, the installer will install a sudoers rule granting this account password-less sudo access to `sira-client` and nothing else; if you try to use an existing admin account, the installer will lock this account out of sudo! (You could then hypothetically fix this with Sira, if you were sufficiently determined.)
 
@@ -47,13 +48,13 @@ For each managed node:
 
     The first time you run `sira-install`, it will configure the control node and then the managed node. Subsequent invocations will be much simpler, since the control node will already be configured.
 
-In summary, to install Sira on a node:
+In summary, to install Sira on a node, run the following from the control node user:
 
 ```
-# On the managed node (instructions vary by distribution)
-sudo useradd ...
+# Add the Sira user to the managed node. Also, store the managed node's SSH fingerprint.
+ssh -t <managed-node-admin>@<managed-node> sudo useradd [options] <sira-user>
 
-# On the control node
+# Install Sira on the managed node. On first run, sets up the control node, too.
 sira-install <sira-user> <managed-node-admin>@<managed-node>
 ```
 
