@@ -74,7 +74,13 @@ fn verify(source: impl AsRef<Path>, source_file: &[u8], file_type: &str) -> anyh
 /// Verifies the signatures on `source` and any task files that `source` includes.
 pub fn load_manifests(source: impl AsRef<Path>) -> anyhow::Result<Vec<Manifest>> {
     let mut manifests = vec![];
-    let source_file = fs::read(&source)?;
+    let source_file = match fs::read(&source) {
+        Ok(read) => read,
+        Err(err) => bail!(
+            "Error loading manifest file: {}\n{err}",
+            source.as_ref().to_string_lossy(),
+        ),
+    };
 
     verify(&source, &source_file, "manifest")?;
 
@@ -108,7 +114,10 @@ fn load_includes(base_path: &Path, includes: Vec<String>) -> anyhow::Result<Vec<
     let mut tasks = vec![];
     for task_file in includes {
         let path = base_path.join(&task_file);
-        let source_file = fs::read(&path)?;
+        let source_file = match fs::read(&path) {
+            Ok(read) => read,
+            Err(err) => bail!("Error loading task file: {}\n{err}", path.to_string_lossy()),
+        };
         verify(&path, &source_file, "task")?;
         tasks.extend(load_tasks(path, &source_file)?);
     }
@@ -483,6 +492,31 @@ mod tests {
             ];
 
             assert_eq!(expected, manifests);
+        }
+
+        // Verifies that the method returns helpful error output when it can't load a manifest
+        // or task file for some reason. The bar is very low here: provide context for what
+        // might otherwise be a vague message like:
+        //
+        // No such file or directory (os error 2)
+        mod missing_file {
+            use super::*;
+
+            #[test]
+            fn missing_manifest_file() {
+                let err = load_manifests("/doesnotexist").unwrap_err().to_string();
+                assert!(err.contains("Error loading manifest file: /doesnotexist"));
+                assert!(err.contains("No such file"));
+            }
+
+            #[test]
+            fn missing_task_file() {
+                let err = load_includes(Path::new("/"), vec!["doesnotexist".to_string()])
+                    .unwrap_err()
+                    .to_string();
+                assert!(err.contains("Error loading task file: /doesnotexist"));
+                assert!(err.contains("No such file"));
+            }
         }
 
         mod verifies_manifest_file {
