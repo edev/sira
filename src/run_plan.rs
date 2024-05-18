@@ -4,13 +4,14 @@ use crate::core::plan::HostPlanIntoIter;
 use crate::core::Action;
 use crate::core::Plan;
 use crate::crypto::{self, SigningOutcome};
+use anyhow::bail;
 use std::panic;
 use tokio::task::JoinSet;
 
-mod client;
+pub mod client;
 use client::*;
 
-mod report;
+pub mod report;
 use report::*;
 
 /// The name of the key used for signing actions before they're sent from `sira` to `sira-client`.
@@ -115,7 +116,13 @@ async fn run_host_plan<C: ClientInterface, CM: ManageClient<C>, R: Report + Clon
         reporter.report(&host, &action, &output).await?;
 
         if !output.status.success() {
-            break;
+            // Adapted from crate::run_plan::report::_report()
+            let exit_code_message = match output.status.code() {
+                Some(i) => format!("exit code {i}"),
+                None => "error".to_string(),
+            };
+            let action = title(&action);
+            bail!("Action exited with {exit_code_message}: {action}");
         }
     }
     Ok(())

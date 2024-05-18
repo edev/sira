@@ -1,5 +1,19 @@
 use super::*;
 
+mod print_host_message {
+    use super::*;
+
+    #[test]
+    fn works() {
+        let mut stdout = vec![];
+        print_host_message(&mut stdout, "alice", "Client disconnected").unwrap();
+        assert_eq!(
+            "[alice] Client disconnected\n",
+            String::from_utf8_lossy(&stdout),
+        );
+    }
+}
+
 mod title {
     use super::*;
     use Action::*;

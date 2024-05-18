@@ -706,6 +706,7 @@ mod run_host_plan {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "Action exited with error")]
     async fn returns_if_action_fails() {
         let mut fixture = Fixture::new();
         fixture.plan.manifests[0].include[0].actions = vec![Action::Upload {
@@ -718,10 +719,12 @@ mod run_host_plan {
         }];
         fixture.client_factory().exit_code(&fixture.host, -1);
 
-        fixture.run_host_plan().await.unwrap();
+        let outcome = fixture.run_host_plan().await;
 
         let recorded_commands = fixture.recorded_commands();
         assert_eq!(1, recorded_commands.len());
+
+        outcome.unwrap();
     }
 
     #[tokio::test]

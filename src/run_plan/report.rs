@@ -54,6 +54,18 @@ impl Report for Reporter {
     }
 }
 
+/// Prints a message with a header indicating that it comes from or pertains to a specific host.
+///
+/// Any reporting on a host should likely incorporate at least one call to this function at the
+/// start of printed output.
+pub fn print_host_message<D: Write>(
+    destination: &mut D,
+    host: impl Display,
+    message: impl Display,
+) -> io::Result<()> {
+    writeln!(destination, "[{host}] {message}")
+}
+
 /// Generates a one-line identifier for an [Action], suitable for use as its title in user output.
 pub fn title(action: &Action) -> String {
     use Action::*;
@@ -68,8 +80,8 @@ pub fn title(action: &Action) -> String {
     }
 }
 
-/// A testable method containing the logic for reporting the outcome of an [Action].
-pub fn _report<O: Write, E: Write>(
+/// A testable function containing the logic for reporting the outcome of an [Action].
+pub(crate) fn _report<O: Write, E: Write>(
     stdout: &mut O,
     stderr: &mut E,
     host: &str,
@@ -91,9 +103,9 @@ pub fn _report<O: Write, E: Write>(
     }
 
     if output.status.success() {
-        writeln!(stdout, "[{host}] Completed {}", title(action))?;
+        print_host_message(stdout, host, format!("Completed {}", title(action)))?;
     } else {
-        writeln!(stderr, "[{host}] Action failed. See below for details.")?;
+        print_host_message(stderr, host, "Action failed. See below for details.")?;
     }
 
     if !output.stdout.is_empty() {
@@ -123,15 +135,14 @@ pub fn _report<O: Write, E: Write>(
     Ok(())
 }
 
-/// A testable method containing the logic for reporting that an [Action] is starting.
-pub fn _starting<O: Write>(stdout: &mut O, host: &str, action: &Action) -> io::Result<()> {
+/// A testable function containing the logic for reporting that an [Action] is starting.
+pub(crate) fn _starting<O: Write>(stdout: &mut O, host: &str, action: &Action) -> io::Result<()> {
     let action = title(action);
-    writeln!(
-        stdout,
-        // Adding one extra space lines up "Starting" with "Completed" in the final output.
-        "[{host}] Starting  {action}",
-        // Ex:    Completed {action}
-    )
+
+    // Adding one extra space lines up "Starting" with "Completed" in the final output:
+    //                     Completed {action}
+    let message = format!("Starting  {action}");
+    print_host_message(stdout, host, message)
 }
 
 #[cfg(test)]
