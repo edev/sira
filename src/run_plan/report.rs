@@ -16,7 +16,6 @@ use crate::core::Action;
 use async_trait::async_trait;
 use std::fmt::Display;
 use std::io::{self, Write};
-use std::ops::DerefMut;
 use std::process::Output;
 use tokio::task;
 
@@ -70,15 +69,15 @@ pub fn title(action: &Action) -> String {
 }
 
 /// A testable method containing the logic for reporting the outcome of an [Action].
-pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Target = ET>>(
-    mut stdout: O,
-    mut stderr: E,
+pub fn _report<O: Write, E: Write>(
+    stdout: &mut O,
+    stderr: &mut E,
     host: &str,
     action: &Action,
     output: &Output,
 ) -> io::Result<()> {
-    fn write_indented(
-        mut writer: impl Write,
+    fn write_indented<W: Write>(
+        writer: &mut W,
         header: impl Display,
         content: impl AsRef<str>,
     ) -> io::Result<()> {
@@ -92,17 +91,14 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
     }
 
     if output.status.success() {
-        writeln!(&mut stdout, "[{host}] Completed {}", title(action))?;
+        writeln!(stdout, "[{host}] Completed {}", title(action))?;
     } else {
-        writeln!(
-            &mut stderr,
-            "[{host}] Action failed. See below for details.",
-        )?;
+        writeln!(stderr, "[{host}] Action failed. See below for details.")?;
     }
 
     if !output.stdout.is_empty() {
         write_indented(
-            stdout.deref_mut(),
+            stdout,
             "Captured stdout:",
             String::from_utf8_lossy(&output.stdout),
         )?;
@@ -110,7 +106,7 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
 
     if !output.stderr.is_empty() {
         write_indented(
-            stderr.deref_mut(),
+            stderr,
             "Captured stderr:",
             String::from_utf8_lossy(&output.stderr),
         )?;
@@ -122,23 +118,16 @@ pub fn _report<OT: Write, ET: Write, O: DerefMut<Target = OT>, E: DerefMut<Targe
             None => "error".to_string(),
         };
         let yaml = serde_yaml::to_string(action).unwrap();
-        writeln!(
-            &mut stderr,
-            "Action exited with {exit_code_message}:\n{yaml}",
-        )?;
+        writeln!(stderr, "Action exited with {exit_code_message}:\n{yaml}")?;
     }
     Ok(())
 }
 
 /// A testable method containing the logic for reporting that an [Action] is starting.
-pub fn _starting<OT: Write, O: DerefMut<Target = OT>>(
-    mut stdout: O,
-    host: &str,
-    action: &Action,
-) -> io::Result<()> {
+pub fn _starting<O: Write>(stdout: &mut O, host: &str, action: &Action) -> io::Result<()> {
     let action = title(action);
     writeln!(
-        &mut stdout,
+        stdout,
         // Adding one extra space lines up "Starting" with "Completed" in the final output.
         "[{host}] Starting  {action}",
         // Ex:    Completed {action}

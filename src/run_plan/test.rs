@@ -380,7 +380,7 @@ pub mod fixtures {
         impl Report for Arc<TestReporter> {
             // Performs a simulated start notice, and then optionally returns an expected failure.
             async fn starting(&mut self, host: &str, action: &Action) -> io::Result<()> {
-                let result = _starting(self.stdout.lock().unwrap(), host, action);
+                let result = _starting(&mut *self.stdout.lock().unwrap(), host, action);
 
                 if *self.should_fail_to_start.lock().unwrap() {
                     Err(io::Error::other("expected"))
@@ -397,8 +397,8 @@ pub mod fixtures {
                 output: &Output,
             ) -> io::Result<()> {
                 let result = _report(
-                    self.stdout.lock().unwrap(),
-                    self.stderr.lock().unwrap(),
+                    &mut *self.stdout.lock().unwrap(),
+                    &mut *self.stderr.lock().unwrap(),
                     host,
                     action,
                     output,
