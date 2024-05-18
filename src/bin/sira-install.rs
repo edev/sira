@@ -4,8 +4,6 @@
 //!
 //! [installation.md]: https://github.com/edev/sira/blob/main/installation.md
 
-// TODO Try to statically link everything. Examine what's dynamically linked and how it's licensed.
-
 use sira::client;
 use sira::config;
 use sira::core::action::{self, Action};
@@ -99,7 +97,6 @@ fn main() {
     }
 }
 
-// TODO Strongly consider moving this to crypto.rs and deploying globally. Same with key_dir().
 /// Returns the path to the allowed signers directory.
 fn allowed_signers_dir() -> &'static Path {
     static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
@@ -296,7 +293,6 @@ fn control_node(sira_user: &str, destination: &str) {
     //
     // Invocation;
     // scp <file_transfers> <destination>:
-    // TODO Add white space after declining to generate action key.
     {
         println!("Transferring files to {destination}");
         let mut args: Vec<&OsStr> = file_transfers

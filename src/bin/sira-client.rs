@@ -12,30 +12,6 @@ use std::path::Path;
 /// The name of the allowed signers file used to verify actions.
 pub const ALLOWED_SIGNERS_FILE: &str = "action";
 
-// TODO Write a full client application instead of this ad hoc version.
-// TODO Carefully evaluate what's testable in this file and test it.
-
-// TODO Strongly consider changing the arguments to file names.
-//
-// I have been unable to find a way to invoke this binary in Bash without Bash seemingly messing
-// with the arguments (stripping out newlines). While we don't run into this issue when invoking
-// this binary as part of a Plan, it leads the end user down a dead-end rabbit hole if they try to
-// invoke this binary.
-//
-// The seemingly obvious solution is to write the yaml and the signature to well-known temporary
-// files, e.g. .sira-yaml and .sira-sig.
-//
-// Security analysis:
-//
-// If the action signing key is not in use, then anyone with access to the Sira user can do
-// whatever they want via passwordless `sudo /opt/sira/bin/sira-client`. Thus, write access to the
-// Sira user's home directory (or wherever the Sira user's SSH sessions start) is equivalent to
-// sudo. This should already be secured for several other reasons, so no new access is granted.
-//
-// If the action signing key is in use, then we really don't need to trust the inputs: we can
-// verify them. We must simply ensure that we avoid TOCTOU issues by reading the YAML file to a
-// buffer, verifying that buffer, and then using that buffer.
-
 fn main() -> anyhow::Result<()> {
     // Number of actual arguments (excluding the name of the binary).
     let argc = env::args()

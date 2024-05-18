@@ -408,6 +408,13 @@ If community interest develops around Sira, I am open to the possibility of evol
 
 **Sira is experimental!** The core of Sira is fully functional and well-documented. You can write manifest and task files, with or without cryptographic signatures, and they will execute fully and correctly. Outside of the core, some basic features, such as the UI, are not complete. Other planned features, such as the auto-update system, are not yet implemented on any level whatsoever. Additionally, breaking changes may occur at any time.
 
+### Major to-do items
+
+- Develop a self-updater
+- Develop `Action::RegexInFile`
+- Replace `serde_yaml` now that it's deprecated
+- Replace `sira` and `sira-client` binaries with more fully featured versions (e.g. implementations that use `clap` to accept arguments and support a reasonable set of them)
+
 ## License
 
 Licensed under either the "Apache License (Version 2.0)" or the "MIT License" at your option. See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
