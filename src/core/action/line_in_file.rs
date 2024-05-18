@@ -5,18 +5,6 @@ use std::borrow::Cow;
 use std::fs;
 use std::io;
 
-// TODO Consider rewriting LineInFile to use regex.
-//
-// Reasons to do this:
-// - Flexibility / robustness in messy user environments
-// - Obvious correctness
-//
-// Reasons not to do this:
-// - Requires the Regex crate (although we currently require it elsewhere, too, so it's fine)
-// - Might be a significant performance regression, particularly if the regex needs to be compiled
-//   each run. (Try to mitigate this by ensuring that it's computed at compile time as a
-//   compile-time-constant value.)
-
 /// Implements client-side logic for [Action::LineInFile].
 ///
 /// # Returns

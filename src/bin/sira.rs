@@ -7,17 +7,6 @@ use std::env;
 use std::fmt::Display;
 use std::io::{self, Write};
 
-// TODO Write a full control node application instead of this stub.
-// TODO Write a proper UI.
-// TODO Add any options or modes that make sense, e.g. --validate.
-
-// TODO Consider setting up an advanced testing system involving compiling VMs or containers.
-//
-// There is a lot that we can't test right now involving interactions between the sira and
-// sira-client binaries.
-
-// TODO Consider what integration or system tests make sense and add them.
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let manifest_files: Vec<String> = env::args().skip(1).collect();
