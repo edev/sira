@@ -404,18 +404,20 @@ Sira is a personal project. This means that I invest time in Sira at my sole dis
 
 If you have a professional interest in Sira and you want to hire me to develop and maintain it, please feel free to get in touch! Of course, the license also permits you to fork it and develop it privately, if you prefer.
 
-**Sira is experimental!** The core of Sira is fully functional and well-documented. You can write manifest and task files, with or without cryptographic signatures, and they will execute fully and correctly. Outside of the core, some basic features, such as the UI, are not complete. Other planned features, such as the auto-update system, are not yet implemented on any level whatsoever. Additionally, breaking changes may occur at any time.
-
 ### Why isn't Sira published on crates.io?
 
 Let me set aside my professional voice for a moment to explain my personal feelings and motivations. In my view, publishing a crate is an invitation for the world to try, use, and provide feedback on a project, and it comes with a responsibility to support those users as well. I'm not really looking to throw a house party on my GitHub, nor am I prepared to take responsibility for being the solo maintainer of a (free!) project that competes with IBM, Puppet Labs, and more. I wrote Sira for my own, personal use, and I'm showing it off here because I think it's cool. If others think it's cool and a community develops around Sira, great! My feelings might change. However, that will require other, talented developers coalescing around a positive, nourishing, collaborative, community effort in which I personally want to participate. Otherwise, Sira might simply live here forever (or might one day disappear, possibly without warning).
 
-### Major to-do items
+### Sira is experimental!
+
+The core of Sira is fully functional and well-documented. You can write manifest and task files, with or without cryptographic signatures, and they will execute fully and correctly. Outside of the core, some basic features, such as the UI, are not complete. Other planned features, such as the auto-update system, are not yet implemented on any level whatsoever. Additionally, breaking changes may occur at any time.
+
+**Major to-do items include:**
 
 - Develop a self-updater
 - Develop `Action::RegexInFile`
 - Replace `serde_yaml` now that it's deprecated
-- Replace `sira` and `sira-client` binaries with more fully featured versions (e.g. implementations that use `clap` to accept arguments and support a reasonable set of them)
+- Replace `sira` and `sira-client` binaries with more fully featured versions (e.g. implementations that use [clap](https://crates.io/crates/clap) to accept arguments and support a reasonable set of them)
 
 ## License
 
