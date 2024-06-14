@@ -26,7 +26,8 @@ As the control node user:
 1. Compile Sira's control node and client binaries (Sira is small, so this should be quick):
 
 ```
-$ cargo install sira
+git clone git@github.com:edev/sira.git
+cargo install --path sira
 ```
 
 ## Automatic installation (recommended)
