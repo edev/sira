@@ -28,9 +28,9 @@ pub const ACTION_SIGNING_KEY: &str = "action";
 ///
 /// # Returns
 ///
-/// On success, returns `Ok(())`. On failure, returns a list of failure tuples of the form
-/// `(host, error)`. Hosts that do not appear in this error return have successfully run their
-/// portion of the [Plan].
+/// If all hosts run all of their [Action]s successfully, returns `Ok(())`. Otherwise, returns a
+/// list of failure tuples of the form `(host, error)`. Hosts that do not appear in this error
+/// return have successfully run their portions of the [Plan].
 ///
 /// [Action]: crate::core::Action
 /// [Action::Command]: crate::core::Action::Command
