@@ -1,7 +1,7 @@
 //! Utilities for implementing logic on a managed node.
 //!
-//! This module is used writing client logic and has no interaction with SSH. The SSH connection to
-//! the managed node runs through [mod@crate::run_plan].
+//! This module is used for writing client logic and has no interaction with SSH. The SSH
+//! connection to the managed node runs through [mod@crate::run_plan].
 
 use anyhow::{bail, Context};
 use shlex::Quoter;
