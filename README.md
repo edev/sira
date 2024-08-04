@@ -179,6 +179,34 @@ If a managed node is unreachable, Sira will ignore it and continue processing ot
 
 If an action fails on any managed node, that node aborts, and the other nodes continue processing. Once the run is complete, `sira` will exit with a non-zero exit code.
 
+### Updating Sira and `sira-client`
+
+Sira is designed around the assumption that you will incorporate it into whatever command-line tooling works for you. It doesn't provide an explicit auto-update facility, but updating Sira is very simple nonetheless.
+
+First, update Sira on the control node. For instance, if you cloned Sira into `~/sira`:
+
+```bash
+cd ~/sira
+git pull
+cargo install --path .
+```
+
+Then, write a task **at the very beginning of your first-run task file** that installs the latest `sira-client` binary on a managed node (remember to change `<control-user>` to your Sira control user name):
+
+```yaml
+---
+name: Update sira-client
+actions:
+  - upload:
+      from: /home/<control-user>/.cargo/bin/sira-client
+      to: /opt/sira/bin/sira-client
+      permissions: 700
+```
+
+That's it!
+
+Sira might add an option to use GitHub releases as a chain of trust for signed binaries in the future; if so, Sira might include an auto-update mechanism by default. At this time, however, the above is the recommended way to keep Sira up-to-date.
+
 ### Advanced feature: Variables
 
 As the examples above demonstrated, manifests and tasks can define variables for use in actions by using the `vars` key. When `sira` is about to run an action on a managed node, it compiles a copy of the action to send to `sira-client` as YAML. As part of this process, it substitutes variables into all fields except Booleans, e.g. `indent` for `line_in_file` and `overwrite` for `upload`. (This is due to a minor technical limitation; if there's demand, applying variables to Boolean fields can be implemented.)
