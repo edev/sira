@@ -191,7 +191,7 @@ git pull
 cargo install --path .
 ```
 
-Then, write a task that installs the latest `sira-client` binary on a managed node (remember to change `<control-user>` to your Sira control user name):
+Then, write a task **at the very beginning of your first-run task file** that installs the latest `sira-client` binary on a managed node (remember to change `<control-user>` to your Sira control user name):
 
 ```yaml
 ---
