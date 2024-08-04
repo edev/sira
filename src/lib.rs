@@ -1,22 +1,17 @@
-//! Simple remote administration.
+//! Sira: Simple remote administration.
 //!
-//! # YAML file types
+//! You will find a fairly comprehensive introduction to Sira from an end user's perspective in the
+//! [README](https://github.com/edev/sira). Everything in this repository assumes you have already
+//! read that document.
 //!
-//! Manifest files and Task files. These are just the names for the file types; you can think of
-//! them in whatever terms work for you, e.g. playbooks, roles and profiles, etc.
+//! If you are looking to install and use Sira, check out the [installation
+//! guide](https://github.com/edev/sira/blob/main/installation.md).
 //!
-//! # Program flow
+//! If you want to know more about Sira's security model, take a look at [Securing
+//! Sira](https://github.com/edev/sira/blob/main/security.md).
 //!
-//! This section is meant specifically for developers writing code for Sira. If you are using Sira
-//! to manage systems, you don't need to read this section.
-//!
-//! Below is a high-level overview of Sira's program flow. You can find details of all aspects of
-//! the program's flow deeper in the relevant modules' documentation.
-//!
-//! 1. On the control node, the user invokes Sira via a controller application such as the `sira`
-//!    binary.
-//!
-//! 2. Ahem, this not yet written. Pardon the construction dust.
+//! If you are a developer working on Sira, take a look at the [developer setup
+//! guide](https://github.com/edev/sira/blob/main/developer-setup.md).
 
 pub mod client;
 pub mod config;
