@@ -30,6 +30,17 @@ git clone git@github.com:edev/sira.git
 cargo install --path sira
 ```
 
+### Static vs. dynamic linking
+
+If you intend to manage very similar Linux systems, e.g. all running fully updated versions of the same distribution, the instructions above will likely be fine. Otherwise, you might need to build statically linked binaries, especially `sira-client`:
+
+```
+rustup target add x86_64-unknown-linux-musl
+cargo install --target x86_64-unknown-linux-musl --path sira
+```
+
+I readily admit that the full implications of this change are beyond my expertise (at time of writing). However, `x86_64-unknown-linux-musl` is a [tier 2](https://doc.rust-lang.org/nightly/rustc/platform-support.html) target, guaranteed to build but not guaranteed to work. It should generally be well-supported, and Sira is quite simple, but there's no guarantee. If you run into a problem, please open an issue! Additionally, if you know more than I do, please feel free to open an issue to discuss how best to handle and document this. Thank you!
+
 ## Automatic installation (recommended)
 
 For each managed node:
