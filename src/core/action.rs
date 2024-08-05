@@ -655,9 +655,9 @@ impl HostAction {
     ///
     /// # Variable precedence
     ///
-    /// [Task] variables take precedence over [Manifest] variables. For example, if in
+    /// [Manifest] variables take precedence over [Task] variables. For example, if in
     /// [Manifest::vars] you set the variable `breakfast` to be `cake` and in [Task::vars] you set
-    /// `breakfast` to be `pie`, the final value of `breakfast` will be `pie`.
+    /// `breakfast` to be `pie`, the final value of `breakfast` will be `cake`.
     ///
     /// # Variable substitution
     ///
@@ -675,23 +675,32 @@ impl HostAction {
     ///    variable named `var`, if one exists. If `var` does not exist, the [Action] remains
     ///    unchanged. This cannot be used recursively; it is a simple text substitution.
     ///
-    /// Any portion of an [Action] that runs via `sira-client` may also use shell variables on the
-    /// remote host. As long as they do not match the above substitution rules, they will pass
-    /// through to the remote host's shell unchanged.
-    ///
     /// # Substitution order
     ///
     /// Variables are substituted in the order in which they are defined, and variables defined in
-    /// [Manifest::vars] are substituted before variables defined in [Task::vars]. By relying on
-    /// this ordering, it is possible to use cascading variable substitutions to a limited degree,
-    /// though this generally is not recommended.
+    /// [Task::vars] are substituted before variables defined in [Manifest::vars]. A variable's
+    /// order is set when it is first defined, so variables defined in both [Task::vars] and
+    /// [Manifest::vars] are ordered according to [Task::vars]. By relying on this ordering, it is
+    /// possible to use cascading variable substitutions to a limited degree, though this is likely
+    /// to be a *very bad idea!*
+    ///
+    /// # Interaction with (shell) script variables
+    ///
+    /// The syntax of variable substitution is similar to the syntax for shell variables; this is
+    /// intentional. If you are writing an [Action::Script], you are free to intermingle Sira
+    /// variables and script variables. Sira only replaces variables for which it has values, so
+    /// script variables will pass through cleanly. You are even free to use script variables as
+    /// the values for your Sira variables. For instance, if you set the manifest or task variable
+    /// `home: $HOME`, Sira will replace `$home` with the literal text `$HOME` before sending the
+    /// script to `sira-client`. Your script can then interpret `$HOME` appropriately on the
+    /// managed node.
     pub fn compile(&self) -> Action {
         let mut action = self.action.clone();
 
         // To implement variable substitution rules with precedence, we merge variables, in order,
         // and then substitute, again in order.
-        let mut vars = self.manifest.vars.clone();
-        for (var, value) in &self.task.vars {
+        let mut vars = self.task.vars.clone();
+        for (var, value) in &self.manifest.vars {
             let _ = vars.insert(var.clone(), value.clone());
         }
 
@@ -1321,8 +1330,8 @@ upload:
             }
 
             #[test]
-            fn task_vars_take_precedence() {
-                assert_eq!("bar", compile(&[("foo", "foo")], &[("foo", "bar")], "$foo"));
+            fn manifest_vars_take_precedence() {
+                assert_eq!("baz", compile(&[("foo", "baz")], &[("foo", "bar")], "$foo"));
             }
 
             #[test]
@@ -1360,15 +1369,15 @@ upload:
             }
 
             #[test]
-            fn merges_task_vars_after_manifest_vars() {
-                // Task's "1" should replace Manifest's "1" in place.
-                // Task's "3" should come after Manifest's "2".
+            fn merges_manifest_vars_after_task_vars() {
+                // Manifest's "1" should replace Task's "1" in place.
+                // Manifest's "3" should come after Task's "2".
                 // Thus, the replacements should go 1, 2, 3, done.
                 assert_eq!(
                     "done",
                     compile(
-                        &[("1", "FAIL"), ("2", "$3")],
                         &[("1", "$2"), ("3", "done")],
+                        &[("1", "FAIL"), ("2", "$3")],
                         "$1",
                     )
                 );

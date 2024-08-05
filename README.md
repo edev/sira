@@ -216,15 +216,17 @@ The process is intentionally simple, both so that you don't have to think about 
 1. Sira compiles a dictionary mapping variable names to values.
 2. For each variable `v`, Sira searches all fields of the action (except Booleans) for occurrences of `$v` or `${v}` and replaces that text with the variable's value. This is implemented as a single regular expression match-and-replace operation; it is not recursive.
 
-Precise details are below, but as long as you keep things simple, all you need to remember are the two steps above.
+Details are below, but as long as you keep things simple, all you need to remember are the two steps above.
 
-Task variables override manifest variables, but I am considering reversing this. Best practice for now is to avoid defining any given variable in both a task and a manifest that includes the task. Pick one, not both.
+Manifest variables override task variables. This allows you to use a variable in a task, provide a default value, and optionally override it when you include the task in a manifest.
 
-Sira replaces variables in the order in which they were defined. However, it is a *really bad idea* to depend on this behavior, e.g. to try to create recursive variable substitutions. It will work, but your files will almost certainly become inscrutable and impossible to maintain!
+Sira replaces variables in the order in which they were defined. However, it is a *really bad idea* to depend on this behavior, e.g. to try to create recursive variable substitutions. It will work, but your files will almost certainly become inscrutable and nearly impossible to maintain!
 
 Variables are not substituted in manifests or in other fields of tasks (e.g. `name`). They are only applied to actions and only in the manner stated above. There is no other "magic."
 
 For maximum flexibility, there is no error detection when substituting variables.
+
+For even more detail, read the documentation for `sira::core::action::HostAction::compile()`.
 
 ### Advanced feature: harness the full power of YAML
 
