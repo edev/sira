@@ -89,7 +89,7 @@ fn guard_allowed_signers_against_directory_traversal(
             allowed_signers.as_ref(),
         );
     } else if allowed_signers.as_ref().to_str().unwrap().trim().is_empty() {
-        // An empty allowed_signers arguably a variant on a directory traversal attack. It won't
+        // An empty allowed_signers is arguably a variant on a directory traversal attack. It won't
         // cause unsafe behavior, but if we don't catch it here, we will return an unhelpful error.
         bail!("allowed_signers should not be empty");
     }
