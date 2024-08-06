@@ -5,7 +5,8 @@
 use crate::core::action::FILE_TRANSFER_PATH;
 use async_trait::async_trait;
 use openssh::{KnownHosts, Session};
-use std::io;
+use std::fs;
+use std::io::{self, Write};
 use std::process::{Command, Output};
 use tokio::task;
 
@@ -146,19 +147,83 @@ impl ClientInterface for Client {
 }
 
 impl Client {
-    /// Invoke `sudo /opt/sira/bin/sira-client <yaml> [signature]` on the remote host.
+    /// Transfers an action and optionally its signature to the remote host and runs `sira-client`.
     async fn client_command(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> Result<Output, openssh::Error> {
+        // First, write temporary files on the remote host.
+        //
+        // Note that we don't need to be nearly as careful when handling mktemp here as in
+        // crate::client::mktemp(), because we are writing signed data.
+        impl Client {
+            // Writes `contents` to a temporary file on the remote host. On success, returns
+            // the path to the remote temporary file.
+            async fn transfer_file(
+                &self,
+                contents: &[u8],
+            ) -> Result<String, Result<Output, openssh::Error>> {
+                // Unwrap: we can't proceed without mktemp(), and it tries to output clear errors.
+                let (mut local_file, local_path) = crate::client::mktemp().unwrap();
+                let remote_path = match self.remote_mktemp().await {
+                    Ok(s) => s,
+                    Err(result) => return Err(result),
+                };
+
+                // Write a local temp file so we can call scp to transfer it.
+                local_file
+                    .write_all(contents)
+                    .expect("error writing temp file");
+                local_file.flush().expect("error flushing temp file");
+
+                // Transfer the file via scp.
+                let scp_output = self
+                    .scp(&local_path, &format!("{}:{}", self.host, remote_path))
+                    .await
+                    .expect("error transferring temp file");
+                if !scp_output.status.success() {
+                    return Err(Ok(scp_output));
+                }
+
+                // Remove the local temp file.
+                fs::remove_file(&local_path).expect("error removing temp file on control node");
+
+                Ok(remote_path)
+            }
+
+            // Calls `mktemp` on the remote host, handling errors that might arise. On success,
+            // returns the path to the remote file, which will be empty and ready for writing.
+            async fn remote_mktemp(&self) -> Result<String, Result<Output, openssh::Error>> {
+                match self.session.command("mktemp").output().await {
+                    Ok(x) if !x.status.success() => Err(Ok(x)),
+                    Ok(x) if !x.stderr.is_empty() => Err(Ok(x)),
+                    Err(e) => Err(Err(e)),
+                    Ok(x) if x.stdout.is_empty() => {
+                        panic!("bug: remote mktemp exited successfully without printing anything");
+                    }
+                    Ok(x) => Ok(String::from_utf8_lossy(&x.stdout).trim_end().to_owned()),
+                }
+            }
+        }
+
+        let remote_action_path = match self.transfer_file(yaml.as_bytes()).await {
+            Ok(s) => s,
+            Err(result) => return result,
+        };
+        let remote_signature_path = match signature {
+            Some(ref signature) => match self.transfer_file(signature).await {
+                Ok(s) => Some(s),
+                Err(result) => return result,
+            },
+            None => None,
+        };
+
         let mut command = self.session.command("sudo");
         command.arg("/opt/sira/bin/sira-client");
-        command.arg(yaml);
-        if let Some(sig) = signature {
-            let sig = String::from_utf8(sig)
-                .expect("expected signature to be Base64-encoded, but it was not valid UTF-8");
-            command.arg(&sig);
+        command.arg(remote_action_path);
+        if let Some(s) = remote_signature_path {
+            command.arg(s);
         }
         command.output().await
     }
