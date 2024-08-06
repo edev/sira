@@ -272,9 +272,17 @@ pub fn verify(
     match output.status.success() {
         true => Ok(()),
         false => Err(anyhow!(
-            "Error verifying signature for file {}:\n{}",
+            "Error verifying signature for file {}:\n{}{}",
             signature.as_ref().to_string_lossy(),
+            // Note: on signature verification errors, ssh-keygen writes to both stdout and stderr.
+            //
+            // I'm not aware of a simple, safe way to merge stdout and stderr in this context. Both
+            // can contain important information. I hesitate to add complex code to a path that's
+            // difficult to test, so, for now, we will output stderr followed by stdout. This seems
+            // to preserve the order of error messages for incorrect signatures, which is a common
+            // and important code path.
             String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout),
         )),
     }
 }
