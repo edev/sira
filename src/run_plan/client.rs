@@ -146,7 +146,7 @@ impl ClientInterface for Client {
 }
 
 impl Client {
-    /// Invoke `sudo /opt/sira/bin/sira-client <yaml> <signature>` on the remote host.
+    /// Invoke `sudo /opt/sira/bin/sira-client <yaml> [signature]` on the remote host.
     async fn client_command(
         &mut self,
         yaml: &str,
