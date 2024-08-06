@@ -22,27 +22,28 @@ pub trait ManageClient<CI: ClientInterface> {
 /// [Action]: crate::core::Action
 #[async_trait]
 pub trait ClientInterface {
-    /// Send one or more commands to be run on the client.
+    /// Sends one or more commands to be run on the client.
     async fn command(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> Result<Output, openssh::Error>;
 
-    /// Modify a file on the client.
+    /// Modifies a file on the client.
     async fn line_in_file(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> Result<Output, openssh::Error>;
 
+    /// Runs a script on the client.
     async fn script(
         &mut self,
         yaml: &str,
         signature: Option<Vec<u8>>,
     ) -> Result<Output, openssh::Error>;
 
-    /// Upload a file from the Sira control node to the client over SSH.
+    /// Uploads a file from the Sira control node to the client over SSH.
     async fn upload(
         &mut self,
         from: &str,
@@ -228,7 +229,7 @@ impl Client {
         command.output().await
     }
 
-    /// Invoke `scp` on the Sira control node.
+    /// Invokes `scp` on the Sira control node.
     ///
     /// `from` and `to` need to be formatted correctly for use in an `scp` invocation. The command
     /// `scp <from> <to>` will be invoked directly, with no further modifications.
