@@ -14,15 +14,6 @@ pub const KEY_DIR: &str = "keys";
 /// The subdirectory within Sira's configuration directory that holds SSH allowed signers files.
 pub const ALLOWED_SIGNERS_DIR: &str = "allowed_signers";
 
-/// Returns the path to the signature for a given file.
-///
-/// Does not check whether the file or its signature exist.
-pub fn signature_path(file: impl AsRef<Path>) -> PathBuf {
-    let mut sig: OsString = file.as_ref().to_owned().into();
-    sig.push(".sig");
-    sig.into()
-}
-
 /// Returns the path to the allowed signers directory.
 pub fn allowed_signers_dir() -> &'static Path {
     static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
@@ -74,6 +65,15 @@ fn resource_dir(name: &'static str) -> PathBuf {
     let mut dir = config::config_dir();
     dir.push(name);
     dir
+}
+
+/// Returns the path to the signature for a given file.
+///
+/// Does not check whether the file or its signature exist.
+pub fn signature_path(file: impl AsRef<Path>) -> PathBuf {
+    let mut sig: OsString = file.as_ref().to_owned().into();
+    sig.push(".sig");
+    sig.into()
 }
 
 /// Success return values for the [sign] function.
