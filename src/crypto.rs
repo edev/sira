@@ -6,6 +6,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 /// The subdirectory within Sira's configuration directory that holds SSH keys.
 pub const KEY_DIR: &str = "keys";
@@ -20,6 +21,14 @@ pub fn signature_path(file: impl AsRef<Path>) -> PathBuf {
     let mut sig: OsString = file.as_ref().to_owned().into();
     sig.push(".sig");
     sig.into()
+}
+
+/// Returns the path to the allowed signers directory.
+pub fn allowed_signers_dir() -> &'static Path {
+    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
+    COMPUTED
+        .get_or_init(|| resource_dir(ALLOWED_SIGNERS_DIR))
+        .as_ref()
 }
 
 /// Checks for the presence of an `allowed_signers` file of a given name.
@@ -48,6 +57,12 @@ pub fn allowed_signers_path(name: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
     let mut path = resource_dir(ALLOWED_SIGNERS_DIR);
     path.push(name);
     Ok(path)
+}
+
+/// Returns the path to the directory where we store cryptographic signing keys.
+pub fn key_dir() -> &'static Path {
+    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
+    COMPUTED.get_or_init(|| resource_dir(KEY_DIR)).as_ref()
 }
 
 /// Returns the path to the directory for a resource type.
@@ -135,8 +150,7 @@ pub fn sign(file: &[u8], key: impl AsRef<Path>) -> anyhow::Result<SigningOutcome
         bail!("key should not be empty");
     }
 
-    let key_dir = resource_dir(KEY_DIR);
-    let key_file = key_dir.join(key);
+    let key_file = key_dir().join(key);
 
     // There is a TOCTOU issue with checking for key_file's existence here and then calling
     // ssh-keygen. Since ssh-keygen and this function both operate safely regardless of this check,

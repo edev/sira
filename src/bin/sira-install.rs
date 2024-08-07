@@ -7,7 +7,7 @@
 use sira::client;
 use sira::config;
 use sira::core::action::{self, Action};
-use sira::crypto::{ALLOWED_SIGNERS_DIR, KEY_DIR};
+use sira::crypto::{allowed_signers_dir, allowed_signers_path, key_dir};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Display;
@@ -15,7 +15,6 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
 
 // SECTION: installer & client binaries
 
@@ -95,19 +94,6 @@ fn main() {
     } else {
         println!("Please see the installation guide for instructions.");
     }
-}
-
-/// Returns the path to the allowed signers directory.
-fn allowed_signers_dir() -> &'static Path {
-    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
-
-    COMPUTED
-        .get_or_init(|| {
-            let mut dir = config::config_dir();
-            dir.push(ALLOWED_SIGNERS_DIR);
-            dir
-        })
-        .as_ref()
 }
 
 /// Installer logic that should run on the control node as the control node user.
@@ -450,7 +436,8 @@ fn install_allowed_signers_file(dir: impl AsRef<Path>, key_name: impl AsRef<Path
     debug_assert_eq!(key.len(), allowed_signers.len());
     debug_assert!(allowed_signers.starts_with("sira "));
 
-    let allowed_signers_file = allowed_signers_dir().join(key_name);
+    let allowed_signers_file =
+        allowed_signers_path(key_name).expect("error retrieving allowed_signers path");
 
     // Write the allowed signers file to a temp file.
     let (mut file, temp_file_path) = client::mktemp().expect("could not open temporary file");
@@ -577,19 +564,6 @@ fn install_signing_key_pair(dir: impl AsRef<Path>, key_name: impl AsRef<Path>) {
     )
     .expect("could not chmod public key file");
     println!("Signing key installed.");
-}
-
-/// Returns the path to the directory where we store cryptographic signing keys.
-fn key_dir() -> &'static Path {
-    static COMPUTED: OnceLock<PathBuf> = OnceLock::new();
-
-    COMPUTED
-        .get_or_init(|| {
-            let mut dir = config::config_dir();
-            dir.push(KEY_DIR);
-            dir
-        })
-        .as_ref()
 }
 
 /// Checks whether a key exists, panicking if we can't determine an answer.

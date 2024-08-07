@@ -46,6 +46,12 @@ fn verify_file(
     verify(&file_buffer, signature, allowed_signers, identity)
 }
 
+// Note: the public helpers in the module under test are not directly under test here, for a few
+// reasons. First, they're difficult to meaningfully test, since they consist of trivial
+// calculations, many of which will yield different results on different developers' computers.
+// Second, they're indirectly under test in other code. Given their relatively trivial nature, this
+// is deemed good enough.
+
 mod sign {
     use super::*;
 
@@ -69,7 +75,7 @@ mod sign {
         // crate::crypto::verify to prevent the possibility of codependent bugs in sign() and
         // verify() causing this test to erroneously pass.
 
-        let allowed_signers_path = resource_dir(ALLOWED_SIGNERS_DIR).join(key);
+        let allowed_signers_path = allowed_signers_path(key).unwrap();
 
         let signer_identity = {
             let mut allowed_signers = fs::read_to_string(&allowed_signers_path).unwrap();
@@ -168,7 +174,7 @@ mod sign {
     fn returns_error_from_command() {
         let file = [];
 
-        let unreadable_path = resource_dir(KEY_DIR).join("unreadable");
+        let unreadable_path = key_dir().join("unreadable");
 
         // Create an unreadable private key file. If it already exists (e.g. from a previously
         // terminated test pass), this will fail, and that's fine. After this line, though, all
@@ -217,7 +223,7 @@ mod verify {
             x => panic!("expected Ok((SigningOutcome::Signed(_), Some(path)) but received:\n{x:?}"),
         };
 
-        let allowed_signers_path = resource_dir(ALLOWED_SIGNERS_DIR).join(key);
+        let allowed_signers_path = allowed_signers_path(key).unwrap();
 
         // This will fail if the sample allowed_signers file has more than one entry and the entry
         // that matches the signature is not the first one, but this is all we need for testing.
@@ -312,7 +318,7 @@ mod verify {
             x => panic!("expected Ok((SigningOutcome::Signed(_), Some(path)) but received:\n{x:?}"),
         };
 
-        let unreadable_path = resource_dir(ALLOWED_SIGNERS_DIR).join("unreadable");
+        let unreadable_path = allowed_signers_path("unreadable").unwrap();
 
         // Create an unreadable allowed_signers file. If it already exists (e.g. from a previously
         // terminated test pass), this will fail, and that's fine. After this line, though, all
