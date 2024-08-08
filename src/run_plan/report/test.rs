@@ -99,7 +99,7 @@ mod _report {
         ) -> (io::Result<()>, Vec<u8>, Vec<u8>) {
             let mut stdout = vec![];
             let mut stderr = vec![];
-            let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output);
+            let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output, 0.);
             (result, stdout, stderr)
         }
 
@@ -113,7 +113,7 @@ mod _report {
         ) -> (io::Result<()>, FailingWriter, Vec<u8>) {
             let mut stdout = FailingWriter::new(failing_line.into());
             let mut stderr = vec![];
-            let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output);
+            let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output, 0.);
             (result, stdout, stderr)
         }
 
@@ -126,7 +126,7 @@ mod _report {
         ) -> (io::Result<()>, Vec<u8>, FailingWriter) {
             let mut stdout = vec![];
             let mut stderr = FailingWriter::new(failing_line.into());
-            let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output);
+            let result = _report(&mut stdout, &mut stderr, host.as_ref(), action, &output, 0.);
             (result, stdout, stderr)
         }
 
@@ -253,7 +253,7 @@ mod _report {
         );
         assert!(stdout
             .as_slice()
-            .starts_with(b"[bob] Completed command: bash -c zsh"));
+            .starts_with(b"[bob] Completed command: bash -c zsh (0.000s)"));
     }
 
     #[test]

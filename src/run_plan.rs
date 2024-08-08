@@ -35,7 +35,7 @@ pub const ACTION_SIGNING_KEY: &str = "action";
 /// [Action]: crate::core::Action
 /// [Action::Command]: crate::core::Action::Command
 pub async fn run_plan(plan: Plan) -> Result<(), Vec<(String, anyhow::Error)>> {
-    _run_plan(plan, ConnectionManager, Reporter).await
+    _run_plan(plan, ConnectionManager, Reporter::new()).await
 }
 
 /// Provides dependency injection for unit-testing [run_plan] without SSH, stdout, or stderr.

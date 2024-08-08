@@ -402,6 +402,7 @@ pub mod fixtures {
                     host,
                     action,
                     output,
+                    0.,
                 );
 
                 if *self.should_fail.lock().unwrap() {

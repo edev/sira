@@ -14,9 +14,11 @@
 
 use crate::core::Action;
 use async_trait::async_trait;
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::process::Output;
+use std::time::Instant;
 use tokio::task;
 
 /// Prints feedback about each [Action] run on a client to stdout/stderr to keep the user informed.
@@ -32,13 +34,24 @@ pub trait Report {
 }
 
 /// The real, production-ready [Report] implementation. Uses the real stdout/stderr.
-#[derive(Clone, Debug)]
-pub struct Reporter;
+#[derive(Clone, Default, Debug)]
+pub struct Reporter {
+    durations: BTreeMap<String, Instant>,
+}
+
+impl Reporter {
+    pub fn new() -> Self {
+        Self {
+            durations: BTreeMap::new(),
+        }
+    }
+}
 
 #[async_trait]
 impl Report for Reporter {
     async fn starting(&mut self, host: &str, action: &Action) -> io::Result<()> {
         let mut stdout = io::stdout().lock();
+        let _ = self.durations.insert(host.to_owned(), Instant::now());
         task::block_in_place(move || _starting(&mut stdout, host, action))
     }
 
@@ -50,7 +63,22 @@ impl Report for Reporter {
         // across invocations, so we construct them here instead of storing them in the struct.
         let mut stdout = io::stdout().lock();
         let mut stderr = io::stderr().lock();
-        task::block_in_place(move || _report(&mut stdout, &mut stderr, host, action, output))
+        let duration = match self.durations.remove(host) {
+            Some(instant) => instant.elapsed().as_secs_f64(),
+            None => {
+                // If this runs, then the caller called report for a host without first calling
+                // start. That probably indicates a bug, but it's a very minor one. So, we'll try
+                // to report the error, but we won't panic if there's a problem doing so.
+                let _ = writeln!(
+                    &mut stderr,
+                    "BUG: could not retrieve action duration for host: {host}"
+                );
+                0.0
+            }
+        };
+        task::block_in_place(move || {
+            _report(&mut stdout, &mut stderr, host, action, output, duration)
+        })
     }
 }
 
@@ -87,6 +115,7 @@ pub(crate) fn _report<O: Write, E: Write>(
     host: &str,
     action: &Action,
     output: &Output,
+    duration: f64,
 ) -> io::Result<()> {
     fn write_indented<W: Write>(
         writer: &mut W,
@@ -103,9 +132,17 @@ pub(crate) fn _report<O: Write, E: Write>(
     }
 
     if output.status.success() {
-        print_host_message(stdout, host, format!("Completed {}", title(action)))?;
+        print_host_message(
+            stdout,
+            host,
+            format!("Completed {} ({duration:.3}s)", title(action)),
+        )?;
     } else {
-        print_host_message(stderr, host, "Action failed. See below for details.")?;
+        print_host_message(
+            stderr,
+            host,
+            "Action failed. See below for details. ({duration:.3}s)",
+        )?;
     }
 
     if !output.stdout.is_empty() {
