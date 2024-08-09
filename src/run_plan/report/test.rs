@@ -251,6 +251,7 @@ mod _report {
             &Action::Command(vec!["bash -c zsh".to_string()]),
             success(),
         );
+        // Note: test_report statically fills in 0.000 as the action duration.
         assert!(stdout
             .as_slice()
             .starts_with(b"[bob] Completed command: bash -c zsh (0.000s)"));
@@ -342,11 +343,25 @@ mod _report {
         let command = Action::Command(vec!["exit 48".to_string()]);
         let (_, _, stderr) = test_report("bob", &command, error_code(48));
         let stderr = String::from_utf8(stderr).unwrap();
-        assert!(stderr.contains("[bob] Action failed. See below for details."));
-        assert!(stderr.contains("[bob]    Action exited with exit code 48:"));
+
+        // Construct the full expected output so we can construct the strongest test.
+        //
+        // Note: test_report statically fills in 0.000 as the action duration.
+        //
+        // Note: we construct the YAML programmatically rather than writing it literally in order
+        // to make the test flexible over time, since there are several correct ways to serialize
+        // an action.
+        let mut expected = String::from(
+            "\
+[bob] Action failed. See below for details. (0.000s)
+[bob]    Action exited with exit code 48:
+",
+        );
         for line in serde_yaml::to_string(&command).unwrap().lines() {
-            assert!(stderr.contains(&format!("[bob]        {line}")));
+            expected.push_str(&format!("[bob]        {line}\n"));
         }
+        dbg!(&stderr, &expected);
+        assert!(stderr.contains(&expected));
     }
 
     #[test]

@@ -155,7 +155,7 @@ pub(crate) fn _report<O: Write, E: Write>(
         print_host_message(
             stderr,
             host,
-            "Action failed. See below for details. ({duration:.3}s)",
+            format!("Action failed. See below for details. ({duration:.3}s)"),
         )?;
     }
 
