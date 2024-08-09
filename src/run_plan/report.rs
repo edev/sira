@@ -119,14 +119,28 @@ pub(crate) fn _report<O: Write, E: Write>(
 ) -> io::Result<()> {
     fn write_indented<W: Write>(
         writer: &mut W,
+        host: &str,
         header: impl Display,
         content: impl AsRef<str>,
     ) -> io::Result<()> {
-        //                1234
-        writeln!(writer, "    {header}")?;
+        // print_host_message() inserts a space between host and message, so we subtract one space
+        // from our desired indentation here.
+        print_host_message(
+            writer,
+            host,
+            // Indented to 4.
+            //       123
+            format!("   {header}"),
+        )?;
         for line in content.as_ref().lines() {
-            //                12345678
-            writeln!(writer, "        {line}")?;
+            // Indented to 8.
+            //                1234567
+            print_host_message(
+                writer,
+                host,
+                //       1234567
+                format!("       {line}"),
+            )?;
         }
         Ok(())
     }
@@ -148,6 +162,7 @@ pub(crate) fn _report<O: Write, E: Write>(
     if !output.stdout.is_empty() {
         write_indented(
             stdout,
+            host,
             "Captured stdout:",
             String::from_utf8_lossy(&output.stdout),
         )?;
@@ -156,6 +171,7 @@ pub(crate) fn _report<O: Write, E: Write>(
     if !output.stderr.is_empty() {
         write_indented(
             stderr,
+            host,
             "Captured stderr:",
             String::from_utf8_lossy(&output.stderr),
         )?;
@@ -167,7 +183,12 @@ pub(crate) fn _report<O: Write, E: Write>(
             None => "error".to_string(),
         };
         let yaml = serde_yaml::to_string(action).unwrap();
-        writeln!(stderr, "Action exited with {exit_code_message}:\n{yaml}")?;
+        write_indented(
+            stderr,
+            host,
+            format!("Action exited with {exit_code_message}:"),
+            yaml,
+        )?;
     }
     Ok(())
 }

@@ -273,11 +273,15 @@ mod _report {
         let mut output = success();
         output.stdout.extend(STDOUT.bytes());
 
-        let (_, stdout, _) = test_report("", &Action::Command(vec![]), output);
+        let (_, stdout, _) = test_report("foo", &Action::Command(vec![]), output);
 
         let stdout = String::from_utf8(stdout).unwrap();
-        assert!(stdout.contains("Captured stdout:"));
-        assert!(stdout.contains("please report me"));
+        assert!(stdout.contains(
+            "
+[foo]    Captured stdout:
+[foo]        please report me
+",
+        ));
     }
 
     #[test]
@@ -304,11 +308,15 @@ mod _report {
         let mut output = success();
         output.stderr.extend(STDERR.bytes());
 
-        let (_, _, stderr) = test_report("", &Action::Command(vec![]), output);
+        let (_, _, stderr) = test_report("bar", &Action::Command(vec![]), output);
 
         let stderr = String::from_utf8(stderr).unwrap();
-        assert!(stderr.contains("Captured stderr:"));
-        assert!(stderr.contains("please report me"));
+        assert!(stderr.contains(
+            "\
+[bar]    Captured stderr:
+[bar]        please report me
+",
+        ));
     }
 
     #[test]
@@ -331,12 +339,14 @@ mod _report {
 
     #[test]
     fn reports_error_code_if_any() {
-        let command = Action::Command(vec![]);
+        let command = Action::Command(vec!["exit 48".to_string()]);
         let (_, _, stderr) = test_report("bob", &command, error_code(48));
         let stderr = String::from_utf8(stderr).unwrap();
         assert!(stderr.contains("[bob] Action failed. See below for details."));
-        assert!(stderr.contains("Action exited with exit code 48:"));
-        assert!(stderr.contains(&serde_yaml::to_string(&command).unwrap()));
+        assert!(stderr.contains("[bob]    Action exited with exit code 48:"));
+        for line in serde_yaml::to_string(&command).unwrap().lines() {
+            assert!(stderr.contains(&format!("[bob]        {line}")));
+        }
     }
 
     #[test]
