@@ -416,9 +416,10 @@ pub enum Action {
 
         /// Whether to overwrite an existing file at [Action::Upload::to]. Defaults to `true`.
         ///
-        /// If `false`, this option causes Sira to invoke `mv -n` instead of `mv`. Sira's behavior
-        /// follows from your system's implementation of `mv -n`: most likely, in the event that a
-        /// file exists at the destination, Sira will silently decline to move the file.
+        /// Note that the file will be uploaded even if it ultimately will not be moved into place.
+        /// This allows Sira to most closely implement the expected behavior at the cost of some
+        /// bandwidth, transfer time, and disk activity. (If you feel Sira should make a different
+        /// trade-off, feel free to open an issue to state your case.)
         ///
         /// If this property is `false` and the file already exists, then the user, group, and
         /// permissions **will not be updated**. The existing file will remain untouched.
