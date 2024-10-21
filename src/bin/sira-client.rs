@@ -129,11 +129,9 @@ fn main() -> anyhow::Result<()> {
             )?;
 
             // Install the file, i.e. mv the file into place.
-            let mut args: Vec<OsString> = Vec::new();
-            if !overwrite {
-                args.push("-n".into());
-            }
-            args.push(FILE_TRANSFER_PATH.into());
+
+            // Populate our args Vec with the source path.
+            let mut args: Vec<OsString> = vec![FILE_TRANSFER_PATH.into()];
 
             // Handle various edge cases on `to`.
             match to.trim() {
@@ -160,6 +158,12 @@ fn main() -> anyhow::Result<()> {
                 _ => args.push(to.into()),
             };
 
+            // If we're not to overwrite the destination, do a last-minute check that it doesn't
+            // exist. There is an inevitable TOCTOU concern here, but checking right before we call
+            // `mv` is the best we're going to do.
+            if !overwrite && fs::exists(&args[1])? {
+                return Ok(fs::remove_file(FILE_TRANSFER_PATH)?);
+            }
             if let Err(e) = client::run("mv", &args) {
                 // Try to delete the temporary file for security, but if that fails, silently
                 // ignore the failure. Either way, return the error from `mv`.
