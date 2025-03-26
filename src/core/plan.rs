@@ -118,7 +118,7 @@ pub struct HostPlanIter<'p> {
     current_iter: Option<TaskIter<'p>>,
 }
 
-impl<'p> Iterator for HostPlanIter<'p> {
+impl Iterator for HostPlanIter<'_> {
     type Item = Arc<HostAction>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -193,7 +193,7 @@ impl Iterator for HostPlanIntoIter {
     }
 }
 
-impl<'p> IntoIterator for HostPlan<'p> {
+impl IntoIterator for HostPlan<'_> {
     type Item = Arc<HostAction>;
     type IntoIter = HostPlanIntoIter;
 

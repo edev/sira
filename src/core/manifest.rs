@@ -253,7 +253,7 @@ pub(in crate::core) struct TaskIter<'p> {
     action_iter: Option<std::slice::Iter<'p, Action>>,
 }
 
-impl<'p> Iterator for TaskIter<'p> {
+impl Iterator for TaskIter<'_> {
     type Item = Arc<HostAction>;
 
     fn next(&mut self) -> Option<Self::Item> {
