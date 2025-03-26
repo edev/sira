@@ -27,9 +27,11 @@ mod run {
     #[test]
     fn empty_cmd_or_failure_to_start() {
         let error = run("", &["a", "b", "c"]).unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("failed to start command: '' a b c"));
+        assert!(
+            error
+                .to_string()
+                .contains("failed to start command: '' a b c")
+        );
         let error: io::Error = error.downcast().unwrap();
         assert_eq!(io::ErrorKind::NotFound, error.kind());
     }
@@ -42,9 +44,11 @@ mod run {
     #[test]
     fn exit_failure() {
         let error = run("bash", &["-c", "false"]).unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("command exited with exit code 1: bash -c false"));
+        assert!(
+            error
+                .to_string()
+                .contains("command exited with exit code 1: bash -c false")
+        );
     }
 
     #[test]

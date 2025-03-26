@@ -1,8 +1,8 @@
 //! Provides a [tokio]-based [Plan] runner that runs on each host in parallel.
 
-use crate::core::plan::HostPlanIntoIter;
 use crate::core::Action;
 use crate::core::Plan;
+use crate::core::plan::HostPlanIntoIter;
 use crate::crypto::{self, SigningOutcome};
 use anyhow::bail;
 use std::panic;

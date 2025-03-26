@@ -1,6 +1,6 @@
 use super::*;
-use crate::core::fixtures::plan;
 use crate::core::Action;
+use crate::core::fixtures::plan;
 use anyhow::bail;
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
@@ -466,13 +466,15 @@ mod _run_plan {
     async fn returns_ok() {
         let mut fixture = Fixture::new();
         fixture.plan.manifests[0].hosts = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        assert!(_run_plan(
-            fixture.plan.clone(),
-            fixture.client_factory.clone(),
-            fixture.reporter.clone(),
-        )
-        .await
-        .is_ok());
+        assert!(
+            _run_plan(
+                fixture.plan.clone(),
+                fixture.client_factory.clone(),
+                fixture.reporter.clone(),
+            )
+            .await
+            .is_ok()
+        );
     }
 }
 
@@ -543,9 +545,11 @@ mod run_host_plan {
         async fn reports_starting_action() {
             let fixture = Fixture::new();
             fixture.run_host_plan().await.unwrap();
-            assert!(String::from_utf8(fixture.reporter.stdout().to_vec())
-                .unwrap()
-                .contains("Starting "));
+            assert!(
+                String::from_utf8(fixture.reporter.stdout().to_vec())
+                    .unwrap()
+                    .contains("Starting ")
+            );
         }
 
         #[tokio::test]
@@ -693,9 +697,11 @@ mod run_host_plan {
         async fn reports_action() {
             let fixture = Fixture::new();
             fixture.run_host_plan().await.unwrap();
-            assert!(String::from_utf8(fixture.reporter.stdout().to_vec())
-                .unwrap()
-                .contains("Completed "));
+            assert!(
+                String::from_utf8(fixture.reporter.stdout().to_vec())
+                    .unwrap()
+                    .contains("Completed ")
+            );
         }
 
         #[tokio::test]

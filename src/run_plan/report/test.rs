@@ -252,9 +252,11 @@ mod _report {
             success(),
         );
         // Note: test_report statically fills in 0.000 as the action duration.
-        assert!(stdout
-            .as_slice()
-            .starts_with(b"[bob] Completed command: bash -c zsh (0.000s)"));
+        assert!(
+            stdout
+                .as_slice()
+                .starts_with(b"[bob] Completed command: bash -c zsh (0.000s)")
+        );
     }
 
     #[test]
