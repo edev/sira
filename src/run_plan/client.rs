@@ -158,62 +158,12 @@ impl Client {
         //
         // Note that we don't need to be nearly as careful when handling mktemp here as in
         // crate::client::mktemp(), because we are writing signed data.
-        impl Client {
-            // Writes `contents` to a temporary file on the remote host. On success, returns
-            // the path to the remote temporary file.
-            async fn transfer_file(
-                &self,
-                contents: &[u8],
-            ) -> Result<String, Result<Output, openssh::Error>> {
-                // Unwrap: we can't proceed without mktemp(), and it tries to output clear errors.
-                let (mut local_file, local_path) = crate::client::mktemp().unwrap();
-                let remote_path = match self.remote_mktemp().await {
-                    Ok(s) => s,
-                    Err(result) => return Err(result),
-                };
-
-                // Write a local temp file so we can call scp to transfer it.
-                local_file
-                    .write_all(contents)
-                    .expect("error writing temp file");
-                local_file.flush().expect("error flushing temp file");
-
-                // Transfer the file via scp.
-                let scp_output = self
-                    .scp(&local_path, &format!("{}:{}", self.host, remote_path))
-                    .await
-                    .expect("error transferring temp file");
-                if !scp_output.status.success() {
-                    return Err(Ok(scp_output));
-                }
-
-                // Remove the local temp file.
-                fs::remove_file(&local_path).expect("error removing temp file on control node");
-
-                Ok(remote_path)
-            }
-
-            // Calls `mktemp` on the remote host, handling errors that might arise. On success,
-            // returns the path to the remote file, which will be empty and ready for writing.
-            async fn remote_mktemp(&self) -> Result<String, Result<Output, openssh::Error>> {
-                match self.session.command("mktemp").output().await {
-                    Ok(x) if !x.status.success() => Err(Ok(x)),
-                    Ok(x) if !x.stderr.is_empty() => Err(Ok(x)),
-                    Err(e) => Err(Err(e)),
-                    Ok(x) if x.stdout.is_empty() => {
-                        panic!("bug: remote mktemp exited successfully without printing anything");
-                    }
-                    Ok(x) => Ok(String::from_utf8_lossy(&x.stdout).trim_end().to_owned()),
-                }
-            }
-        }
-
-        let remote_action_path = match self.transfer_file(yaml.as_bytes()).await {
+        let remote_action_path = match self.upload_temporary_file(yaml.as_bytes()).await {
             Ok(s) => s,
             Err(result) => return result,
         };
         let remote_signature_path = match signature {
-            Some(ref signature) => match self.transfer_file(signature).await {
+            Some(ref signature) => match self.upload_temporary_file(signature).await {
                 Ok(s) => Some(s),
                 Err(result) => return result,
             },
@@ -229,11 +179,59 @@ impl Client {
         command.output().await
     }
 
+    /// Calls `mktemp` on the remote host, handling errors that might arise. On success,
+    /// returns the path to the remote file, which will be empty and ready for writing.
+    async fn remote_mktemp(&self) -> Result<String, Result<Output, openssh::Error>> {
+        match self.session.command("mktemp").output().await {
+            Ok(x) if !x.status.success() => Err(Ok(x)),
+            Ok(x) if !x.stderr.is_empty() => Err(Ok(x)),
+            Err(e) => Err(Err(e)),
+            Ok(x) if x.stdout.is_empty() => {
+                panic!("bug: remote mktemp exited successfully without printing anything");
+            }
+            Ok(x) => Ok(String::from_utf8_lossy(&x.stdout).trim_end().to_owned()),
+        }
+    }
+
     /// Invokes `scp` on the Sira control node.
     ///
     /// `from` and `to` need to be formatted correctly for use in an `scp` invocation. The command
     /// `scp <from> <to>` will be invoked directly, with no further modifications.
     async fn scp(&self, from: &str, to: &str) -> io::Result<Output> {
         task::block_in_place(move || Command::new("scp").arg(from).arg(to).output())
+    }
+
+    /// Writes `contents` to a temporary file on the remote host. On success, returns
+    /// the path to the remote temporary file.
+    async fn upload_temporary_file(
+        &self,
+        contents: &[u8],
+    ) -> Result<String, Result<Output, openssh::Error>> {
+        // Unwrap: we can't proceed without mktemp(), and it tries to output clear errors.
+        let (mut local_file, local_path) = crate::client::mktemp().unwrap();
+        let remote_path = match self.remote_mktemp().await {
+            Ok(s) => s,
+            Err(result) => return Err(result),
+        };
+
+        // Write a local temp file so we can call scp to transfer it.
+        local_file
+            .write_all(contents)
+            .expect("error writing temp file");
+        local_file.flush().expect("error flushing temp file");
+
+        // Transfer the file via scp.
+        let scp_output = self
+            .scp(&local_path, &format!("{}:{}", self.host, remote_path))
+            .await
+            .expect("error transferring temp file");
+        if !scp_output.status.success() {
+            return Err(Ok(scp_output));
+        }
+
+        // Remove the local temp file.
+        fs::remove_file(&local_path).expect("error removing temp file on control node");
+
+        Ok(remote_path)
     }
 }
