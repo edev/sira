@@ -433,7 +433,7 @@ pub enum Action {
 impl Serialize for Action {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         struct ExternallyTaggedAction<'a>(&'a Action);
-        impl<'a> Serialize for ExternallyTaggedAction<'a> {
+        impl Serialize for ExternallyTaggedAction<'_> {
             fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 Action::serialize(self.0, serializer)
             }
