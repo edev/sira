@@ -462,9 +462,9 @@ mod tests {
                                 .join("resources/test/load_manifests/t470.yaml"),
                         ),
                         name: "set host name".to_owned(),
-                        actions: vec![Action::Command(
-                            vec!["hostnamectl hostname t470".to_owned()],
-                        )],
+                        actions: vec![Action::Command(vec![
+                            "hostnamectl hostname t470".to_owned(),
+                        ])],
                         vars: IndexMap::new(),
                     }],
                     vars: IndexMap::new(),
@@ -482,9 +482,9 @@ mod tests {
                                 .join("resources/test/load_manifests/zen3.yaml"),
                         ),
                         name: "set host name".to_owned(),
-                        actions: vec![Action::Command(
-                            vec!["hostnamectl hostname zen3".to_owned()],
-                        )],
+                        actions: vec![Action::Command(vec![
+                            "hostnamectl hostname zen3".to_owned(),
+                        ])],
                         vars: IndexMap::new(),
                     }],
                     vars: IndexMap::new(),

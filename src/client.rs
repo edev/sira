@@ -3,7 +3,7 @@
 //! This module is used for writing client logic and has no interaction with SSH. The SSH
 //! connection to the managed node runs through [mod@crate::run_plan].
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use shlex::Quoter;
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};

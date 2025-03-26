@@ -250,9 +250,9 @@ mod tests {
                                     name: "apt install".to_owned(),
                                     actions: vec![
                                         Action::Command(vec!["apt upgrade".to_owned()]),
-                                        Action::Command(
-                                            vec!["apt install -y $packages".to_owned()],
-                                        ),
+                                        Action::Command(vec![
+                                            "apt install -y $packages".to_owned(),
+                                        ]),
                                     ],
                                     vars: [(
                                         "packages".to_owned(),
@@ -267,7 +267,7 @@ mod tests {
                                     ),
                                     name: "snap install".to_owned(),
                                     actions: vec![Action::Command(vec![
-                                        "snap install $snaps".to_owned()
+                                        "snap install $snaps".to_owned(),
                                     ])],
                                     vars: [("snaps".to_owned(), "discord".to_owned())].into(),
                                 },
@@ -292,7 +292,7 @@ mod tests {
                                 ),
                                 name: "set host name".to_owned(),
                                 actions: vec![Action::Command(vec![
-                                    "hostnamectl hostname t470".to_owned()
+                                    "hostnamectl hostname t470".to_owned(),
                                 ])],
                                 vars: IndexMap::new(),
                             }],
@@ -312,7 +312,7 @@ mod tests {
                                 ),
                                 name: "set host name".to_owned(),
                                 actions: vec![Action::Command(vec![
-                                    "hostnamectl hostname zen3".to_owned()
+                                    "hostnamectl hostname zen3".to_owned(),
                                 ])],
                                 vars: IndexMap::new(),
                             }],
@@ -332,7 +332,7 @@ mod tests {
                                 ),
                                 name: "set host name".to_owned(),
                                 actions: vec![Action::Command(vec![
-                                    "hostnamectl hostname t470".to_owned()
+                                    "hostnamectl hostname t470".to_owned(),
                                 ])],
                                 vars: IndexMap::new(),
                             }],

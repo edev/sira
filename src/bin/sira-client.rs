@@ -1,7 +1,7 @@
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use shlex::Shlex;
 use sira::client;
-use sira::core::action::{line_in_file, script, Action, FILE_TRANSFER_PATH};
+use sira::core::action::{Action, FILE_TRANSFER_PATH, line_in_file, script};
 use sira::crypto;
 use std::env;
 use std::ffi::OsString;

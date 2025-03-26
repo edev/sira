@@ -1,7 +1,7 @@
 //! Sign and verify files with SSH keys.
 
 use crate::config;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
