@@ -449,6 +449,20 @@ The core of Sira is fully functional and well-documented. You can write manifest
 - Replace `serde_yaml` now that it's deprecated
 - Replace `sira` and `sira-client` binaries with more fully featured versions (e.g. implementations that use [clap](https://crates.io/crates/clap) to accept arguments and support a reasonable set of them)
 
+## Why so many dependencies?
+
+Sira itself only has a few, carefully chosen dependencies, all of which serve important purposes. Sira also takes care to enable only the minimal set of required features of said dependencies. However, some of these have extensive dependency graphs of their own. As a result, Sira winds up with some absurd dependencies like Windows API support. Clearing these indirect dependencies is not practical for Sira at this time, but there are at least three likely ways this might change in the future.
+
+First, [Rust 1.60](https://blog.rust-lang.org/2022/04/07/Rust-1.60.0.html) adds several features for better dependency management, like the ability for a crate's features to enable features on dependencies only if those dependencies are already enabled. Sira's dependency [Tokio](https://tokio.rs), for instance, supports Rust versions much lower than 1.60 at time of writing, which prevents Tokio from using these features. In time, the minimum supported Rust version (MSRV) will advance, and projects will be able to consider using such features.
+
+Second, there might be room to work with libraries in Sira's dependency graph to add new feature flags or provide other mechanisms that will ultimately pare down Sira's dependency graph.
+
+Third, Sira might simply remove some of these dependencies and implement the required features internally. Sira actually started out this way, and it might return to this in the future. This would also offer opportunities to improve the feedback from running processes over SSH, which is a known shortcoming of Sira's interface right now.
+
+The primary reason all of this matters for Sira is supply chain security. As an extraordinarily security-sensitive application, it makes sense for Sira to be very careful about including third-party source code. On the other hand, sometimes it makes sense to rely on widely trusted and vetted public infrastructure. The long-term goal is to make careful and intentional choices between internal and external code in order to maximize software quality while minimizing risk.
+
+All of this is to say that if you have ideas for paring down Sira's dependency graph in sensible ways, please feel free to get in touch!
+
 ## License
 
 Licensed under either the "Apache License (Version 2.0)" or the "MIT License" at your option. See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
