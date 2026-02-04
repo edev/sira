@@ -148,7 +148,7 @@ mod _report {
 
             let output = Command::new("/bin/sh")
                 .arg("-c")
-                .arg(format!("return {code}"))
+                .arg(format!("exit {code}"))
                 .output()
                 .unwrap();
 
